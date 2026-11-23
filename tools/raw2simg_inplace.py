@@ -8,7 +8,10 @@ Without --keep, each 64 MiB window of RAW is punched out (fallocate
 PUNCH_HOLE) once its data is safely in OUT, so peak extra disk use is one
 window instead of a second full copy. RAW keeps its size but ends up all
 holes: delete it afterwards. simg2img OUT.simg RAW.img restores it.
-Zero 4K blocks become DONT_CARE chunks; holes are skipped with SEEK_DATA.
+Zero 4K blocks and holes become FILL chunks of zeros, never DONT_CARE:
+fastboot leaves DONT_CARE blocks as they were on the phone (the old MIUI
+userdata, encrypted junk), and zero blocks inside files (bss, sparse
+databases) then read back as junk. FILL costs 16 bytes per run.
 """
 import ctypes, os, struct, sys
 
@@ -58,7 +61,7 @@ def main():
 		if run_kind == RAW:
 			emit(RAW, run_n, b''.join(run_data))
 		elif run_kind == DONT_CARE:
-			emit(DONT_CARE, run_n)
+			emit(FILL, run_n, bytes(4))	# zeros on the phone, not 'leave as is'
 		run_kind, run_n, run_data = None, 0, []
 
 	def add(kind, data=None):
