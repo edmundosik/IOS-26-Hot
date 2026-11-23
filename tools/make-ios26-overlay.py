@@ -46,11 +46,71 @@ def _load_tweaks_module():
     return mod
 
 
+class SparseImageReader:
+    """Random-access reads of an Android sparse image as if it were the raw image."""
+
+    def __init__(self, path):
+        self.raw = open(path, 'rb')
+        hdr = self.raw.read(28)
+        magic, _, _, fhs, chs, self.bs, blocks, nchunks, _ = struct.unpack('<IHHHHIIII', hdr)
+        assert magic == 0xed26ff3a
+        self.size = blocks * self.bs
+        self.map = []		# (start_byte, length, kind, file_offset or fill)
+        off, pos = fhs, 0
+        for _ in range(nchunks):
+            self.raw.seek(off)
+            kind, _, n, total = struct.unpack('<HHII', self.raw.read(chs))
+            length = n * self.bs
+            data = off + chs
+            if kind == 0xCAC2:
+                self.raw.seek(data)
+                data = self.raw.read(4)
+            self.map.append((pos, length, kind, data))
+            pos += length
+            off += total
+        self.starts = [m[0] for m in self.map]
+        self.pos = 0
+
+    def seek(self, pos, whence=0):
+        self.pos = pos if whence == 0 else (self.pos + pos if whence == 1 else self.size + pos)
+        return self.pos
+
+    def tell(self):
+        return self.pos
+
+    def read(self, n=-1):
+        import bisect
+        if n < 0:
+            n = self.size - self.pos
+        out = bytearray()
+        while n > 0 and self.pos < self.size:
+            i = bisect.bisect_right(self.starts, self.pos) - 1
+            start, length, kind, data = self.map[i]
+            take = min(n, start + length - self.pos)
+            rel = self.pos - start
+            if kind == 0xCAC1:
+                self.raw.seek(data + rel)
+                out += self.raw.read(take)
+            elif kind == 0xCAC2:
+                out += (data * (take // 4 + 2))[rel % 4:rel % 4 + take]
+            else:
+                out += bytes(take)
+            self.pos += take
+            n -= take
+        return bytes(out)
+
+    def close(self):
+        self.raw.close()
+
+
 class HFSReadOnly:
     """Minimal read-only HFS+/HFSX catalog + data fork reader (never writes or mounts)."""
 
     def __init__(self, path):
         self.f = open(path, 'rb')
+        if self.f.read(4) == b'\x3a\xff\x26\xed':	# Android sparse image
+            self.f.close()
+            self.f = SparseImageReader(path)
         self.f.seek(1024)
         vh = self.f.read(512)
         sig, _ = struct.unpack_from('>2sH', vh, 0)
