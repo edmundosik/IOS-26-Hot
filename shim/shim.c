@@ -23,6 +23,7 @@
 #include "spmi.h"
 #include "ufs.h"
 #include "util.h"
+#include "board.h"
 
 #define IMEM_RESTART_REASON	0x146bf65cUL	/* qcom,msm-imem restart_reason@65c */
 #define RESTART_BOOTLOADER	0x77665500U
@@ -49,7 +50,7 @@
 static int ufs_ok;
 static volatile int in_exception;
 
-#define PSTORE_PMSG_BASE	0xb7fc0000UL	/* RMX1931 ramoops pmsg-ramoops-0 (2 MiB) */
+#define PSTORE_PMSG_BASE	BOARD_PSTORE_PMSG
 #define PSTORE_PMSG_CAP		(0x200000UL - 12UL)
 #define PSTORE_MAGIC		0x43474244U	/* PERSISTENT_RAM_SIG */
 
@@ -226,6 +227,8 @@ static void log_ram(void)
 {
 	static const uint64_t probe[] = { 0x100000000ULL, 0x180000000ULL, 0x1fff00000ULL, 0x27ff00000ULL };
 	for (unsigned i = 0; i < sizeof(probe) / sizeof(probe[0]); i++) {
+		if (probe[i] >= BOARD_RAM_TOP)
+			continue;	/* no RAM there on this board: an access would abort */
 		volatile uint64_t *p = (volatile uint64_t *)(uintptr_t)probe[i];
 		uint64_t old = p[0];
 		p[0] = 0x524d583100000000ULL | i;
@@ -334,7 +337,7 @@ static void readonly_viewer(int spmi_ok)
 			redraw = 0;
 			char hdr1[80], hdr2[80];
 			unsigned n1 = fmt_snprintf(hdr1, sizeof(hdr1),
-				"RMX1931 XNU SHIM PROBE (ZERO-WRITE)  p%u/%u  keys=%x",
+				BOARD_NAME " XNU SHIM PROBE (ZERO-WRITE)  p%u/%u  keys=%x",
 				cur + 1, pages, keys);
 			unsigned n2 = fmt_snprintf(hdr2, sizeof(hdr2),
 				"Fastboot in %us | VOL+/VOL-: page | PWR: exit now", rem);
@@ -359,7 +362,7 @@ static void save_before_jump(void)
 
 void shim_main(uintptr_t dtb)
 {
-	log_printf("RMX1931 SHIM probe v1 t=%lu\n", ticks_now());
+	log_printf(BOARD_NAME " SHIM probe v1 t=%lu\n", ticks_now());
 	log_cpu(dtb);
 	int spmi_ok = !spmi_init();
 	if (spmi_ok) {
@@ -433,7 +436,7 @@ void shim_main(uintptr_t dtb)
 	}
 	if (con_ok) {
 		con_clear(0xff102438);
-		con_str("RMX1931", "shim probe v1");
+		con_str(BOARD_NAME, "shim probe v1");
 	}
 	sde_autorefresh(1);
 	if (!sde.tear_en)

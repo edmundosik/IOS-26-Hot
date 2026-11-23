@@ -14,6 +14,7 @@
 #include "log.h"
 #include "sde.h"
 #include "util.h"
+#include "board.h"
 
 #define MDP		0x0ae00000UL
 #define CTL(n)		(MDP + 0x2000 + 0x200 * (n))
@@ -120,6 +121,8 @@ void sde_sample(const char *what, int n, unsigned ms)
 
 void sde_kick(void)
 {
+	if (BOARD_VIDEO_MODE)
+		return;	/* video mode scans out continuously; CTL_START is for command mode */
 	if (sde.ctl)
 		wr32(sde.ctl + CTL_START, 1);
 }
