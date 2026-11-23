@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Rewrite an Android sparse image so skipped blocks are written as zeros.
 
-  simg-zero-fill.py IN.simg OUT.simg
+  simg-zero-fill.py IN.simg OUT.simg [--zeros-only]
 
 Every DONT_CARE chunk becomes a FILL chunk of zeros (same block count).
 fastboot leaves DONT_CARE blocks untouched on the device, so an image made
 by older raw2simg_inplace.py (zero blocks -> DONT_CARE) let the old
 userdata contents show through wherever an iOS file had a zero 4 KiB block.
 Streams the input; OUT is only slightly larger than IN.
+
+--zeros-only writes a tiny image instead: only the zero FILL chunks, with
+IN's data chunks turned into DONT_CARE. Flash IN and then OUT (to the same
+partition) for the same result without a second full-size image on disk.
 """
 import os
 import struct
@@ -18,9 +22,11 @@ COPY = 16 << 20
 
 
 def main():
-    if len(sys.argv) != 3:
+    zeros_only = '--zeros-only' in sys.argv
+    args = [a for a in sys.argv[1:] if a != '--zeros-only']
+    if len(args) != 2:
         sys.exit(__doc__)
-    src, dst = sys.argv[1:]
+    src, dst = args
     if os.path.exists(dst):
         sys.exit(f'refusing to overwrite {dst}')
     fi, fo = open(src, 'rb'), open(dst, 'wb')
@@ -34,6 +40,9 @@ def main():
         if kind == DONT_CARE:
             fo.write(struct.pack('<HHII', FILL, 0, n, 16) + bytes(4))
             changed += n
+        elif zeros_only:
+            fo.write(struct.pack('<HHII', DONT_CARE, 0, n, 12))
+            fi.seek(tsz - 12, 1)
         else:
             fo.write(struct.pack('<HHII', kind, 0, n, tsz))
             left = tsz - 12
