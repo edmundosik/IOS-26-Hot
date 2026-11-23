@@ -71,6 +71,8 @@ build() {
 	readarray -t dmgs < <(python3 - "$ROOT/tools" "$url" "$work/ipsw" <<'PY'
 import os, plistlib, shutil, sys
 sys.path.insert(0, sys.argv[1])
+out = sys.stdout
+sys.stdout = sys.stderr	# remotezip progress must not land in the path list
 import remotezip as rz
 url, outdir = sys.argv[2], sys.argv[3]
 entries = {e[0]: e for e in rz.central_dir(url)}
@@ -89,7 +91,7 @@ if free < need * 2.6:
     sys.exit(f'error: need roughly {need * 2.6 / 2**30:.0f} GiB free')
 for p in paths:
     rz.extract(url, entries[p], outdir)
-    print(os.path.join(outdir, p))
+    print(os.path.join(outdir, p), file=out, flush=True)
 PY
 )
 	[[ ${#dmgs[@]} == 3 ]] || { echo "error: DMG download failed" >&2; exit 1; }
