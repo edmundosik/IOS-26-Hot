@@ -1,0 +1,25 @@
+diff --git a/bsd/dev/flame_wlan.c b/bsd/dev/flame_wlan.c
+index f428907..b9d9b03 100644
+--- a/bsd/dev/flame_wlan.c
++++ b/bsd/dev/flame_wlan.c
+@@ -27,6 +27,7 @@
+ 
+ void flame_wlan_init(void);
+ void flame_sta_init(void);              /* bsd/dev/flame_sta.c */
++void MiniIONetworkStackStart(void);     /* iokit/Kernel/arm/MiniIONetworkStack.cpp */
+ void redwood_net_init(void);            /* bsd/dev/redwood_net.c: its boot-args */
+ 
+ /* as bsd/dev/flame_sta.c declares it (topaz_wlan_bss) */
+@@ -466,6 +467,12 @@ flame_wlan_init(void)
+ 	uint32_t on = 1;
+ 	PE_parse_boot_argn("sweetwifid", &on, sizeof(on));
+ 	if (!on) {
++		/*
++		 * vayu (sweet 0163): configd's interface namer calls the registry quiet only once it has opened
++		 * IONetworkStack, else after five minutes; until then SCNetworkInterfaceCopyAll() blocks, and
++		 * with it Settings' main thread (and wifid, SpringBoard). The stack is needed with no Wi-Fi too.
++		 */
++		MiniIONetworkStackStart();
+ 		return;
+ 	}
+ 	int major = cdevsw_add(-1, &fw_cdevsw);
