@@ -28,7 +28,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: work/turnip/build-ios/src/freedreno/vulkan/libvulkan_freedreno.dylib
-          key: turnip-ios-85fda3b3-u461a8421-${{ runner.os }}-${{ hashFiles('phone/turnip/**', 'tools/build-turnip-ios.sh', 'work/userland/bin/ios-cc') }}
+          key: turnip-ios-85fda3b3-cd1b9757-${{ runner.os }}-${{ hashFiles('phone/turnip/**', 'tools/build-turnip-ios.sh', 'work/userland/bin/ios-cc') }}
 
       - name: Cache metal2vulkan bridge archive (libnative_metal_bridge.a)
         id: cache-m2v-lib
@@ -120,13 +120,9 @@ jobs:
           # Pinned: later UniXNU Turnip patches use NativeAdreno ABI additions
           # (priority rings, notes, owned-coherent BOs) that phone/turnip/NativeAdrenoABI.h
           # and the SWEET kernel do not have.
-          # vayu: use the UniXNU revision RMX1931 production (hot0151, AdrenoMetal@461a8421) ran;
-          # c7353ea7 builds but its Turnip crashes in iconservicesagent/SpringBoard/backboardd.
-          UNIXNU_REF=${UNIXNU_REF:-461a8421}
-          git clone -q --filter=blob:none https://github.com/UniXNU/UniXNU.git reference-repos/UniXNU
-          git -C reference-repos/UniXNU log --oneline -12 "$UNIXNU_REF" || true
-          git -C reference-repos/UniXNU merge-base --is-ancestor c7353ea7 "$UNIXNU_REF" && echo "c7353ea7 is an ancestor of $UNIXNU_REF" || echo "c7353ea7 is NOT an ancestor of $UNIXNU_REF"
-          git -C reference-repos/UniXNU checkout -q "$UNIXNU_REF"
+          git init -q reference-repos/UniXNU
+          git -C reference-repos/UniXNU fetch -q --depth 1 https://github.com/UniXNU/UniXNU.git c7353ea7a0a8867ea3f09ea572d188eb8e27a871
+          git -C reference-repos/UniXNU checkout -q FETCH_HEAD
           mkdir -p work/turnip
           git init -q work/turnip/mesa
           git -C work/turnip/mesa fetch --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git 85fda3b36405bcaea8bffc64aa4f2651dc90770d || \
