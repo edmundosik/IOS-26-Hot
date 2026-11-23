@@ -36,11 +36,13 @@ setup() {
 		sudo install -m 0755 "$HOME/src/apfs-fuse/build/apfs-fuse" /usr/local/bin/
 	fi
 	if ! command -v ipsw >/dev/null; then
-		local deb
-		deb=$(curl -fsL https://api.github.com/repos/blacktop/ipsw/releases/latest |
-			python3 -c 'import json,sys; print(next(a["browser_download_url"] for a in json.load(sys.stdin)["assets"] if a["name"].endswith("_linux_x86_64.deb")))')
-		curl -fL -o /tmp/ipsw.deb "$deb"
-		sudo apt-get install -y /tmp/ipsw.deb
+		# The plain CLI tarball (the ipswd .deb is a systemd daemon: not wanted).
+		local tgz
+		tgz=$(curl -fsL https://api.github.com/repos/blacktop/ipsw/releases/latest |
+			python3 -c 'import json,re,sys; print(next(a["browser_download_url"] for a in json.load(sys.stdin)["assets"] if re.fullmatch(r"ipsw_[0-9.]+_linux_x86_64\.tar\.gz", a["name"])))')
+		mkdir -p /tmp/ipsw-cli
+		curl -fL "$tgz" | tar -xz -C /tmp/ipsw-cli
+		sudo install -m 0755 "$(find /tmp/ipsw-cli -type f -name ipsw | head -1)" /usr/local/bin/ipsw
 	fi
 	if ! grep -qw hfsplus /proc/filesystems; then
 		local want got
