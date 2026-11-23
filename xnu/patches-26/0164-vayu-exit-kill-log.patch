@@ -1,0 +1,38 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] vayu: log kills that make no crash report (EXIT lines)
+
+SIGKILL from jetsam, RunningBoard or launchd and abort_with_reason without
+a crash report left nothing in the sweet log, so a vanished keyboard
+(InputUI) could not be explained. Prints
+  EXIT name[pid] sig N status S reason ns NS code C: description
+---
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+index 9519bb5..5cd2570 100644
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -2055,6 +2055,25 @@ proc_prepareexit(proc_t p, int rv, boolean_t perf_notify)
+ 		corpse_source = vm_map_is_corpse_source(get_task_map(task));
+ 	}
+ 
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++	/*
++	 * vayu (sweet 0164): log kills that make no crash report (SIGKILL from
++	 * jetsam / RunningBoard / launchd, abort_with_reason without a report).
++	 * Core-signal crashes are logged as CRASH below.
++	 */
++	if ((WIFSIGNALED(rv) && !hassigprop(WTERMSIG(rv), SA_CORE)) ||
++	    (PROC_HAS_EXITREASON(p) && !hassigprop(WTERMSIG(rv), SA_CORE))) {
++		char *desc = PROC_HAS_EXITREASON(p) ?
++		    exit_reason_get_string_desc(p->p_exit_reason) : NULL;
++		printf("EXIT %s[%d] sig %d status %d reason ns %u code 0x%llx: %s\n",
++		    p->p_comm, proc_getpid(p), WIFSIGNALED(rv) ? WTERMSIG(rv) : 0,
++		    WIFSIGNALED(rv) ? 0 : WEXITSTATUS(rv),
++		    PROC_HAS_EXITREASON(p) ? p->p_exit_reason->osr_namespace : 0,
++		    PROC_HAS_EXITREASON(p) ? p->p_exit_reason->osr_code : 0ULL,
++		    desc != NULL ? desc : "(none)");
++	}
++#endif
++
+ 	/*
+ 	 * Generate a corefile/crashlog if:
+ 	 *      The process doesn't have an exit reason that indicates no crash report should be created
