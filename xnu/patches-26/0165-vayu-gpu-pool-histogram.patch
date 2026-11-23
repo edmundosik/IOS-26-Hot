@@ -1,0 +1,93 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] vayu: log what a client's GPU pool memory is made of (0165)
+
+backboardd's pool use keeps growing (898 MB held at 255 s in log34) and
+iOS then jetsams a process every second. Every 20 s while a client holds
+>= 256 MB, print its live BOs grouped by exact size (with how many are
+GPU-mapped) and its imported totals, to see what is never freed.
+---
+diff --git a/iokit/Kernel/arm/SweetAccelerator.cpp b/iokit/Kernel/arm/SweetAccelerator.cpp
+index dd2e97d..0c29390 100644
+--- a/iokit/Kernel/arm/SweetAccelerator.cpp
++++ b/iokit/Kernel/arm/SweetAccelerator.cpp
+@@ -44,6 +44,8 @@
+ #include "SweetSurface.h"
+ #include "SweetGPUABI.h"
+ #include <sweet_diag.h>
++#include <kern/clock.h>
++#include <mach/clock_types.h>
+ 
+ extern "C" {
+ void proc_selfname(char *buf, int size);
+@@ -179,6 +181,8 @@ class SweetAcceleratorUserClient : public IOUserClient {
+ 	char fName[32];
+ 	bool fSystem;                   /* backboardd / SpringBoard: no pool cap, and the reserve is theirs */
+ 	bool fCapLogged;
++	uint64_t fHistAt;               /* sweet 0165: last live-BO histogram (abs time) */
++	void v2LogHistogram(void);      /* call with fLock held */
+ 	bool v2PoolAllowed(uint64_t len);
+ 
+ 	int addMemory(IOMemoryDescriptor *md, uint64_t *handle, uint64_t *va);
+@@ -252,6 +256,47 @@ sweet_v2_pool_limits(uint64_t *cap_bytes, uint64_t *reserve_bytes)
+ 	*reserve_bytes = (uint64_t)reserve_mb << 20;
+ }
+ 
++/*
++ * vayu (sweet 0165): what a client's GPU pool memory is made of, to find
++ * backboardd's growth. First 8 distinct sizes seen, with how many of
++ * them are mapped on the GPU, plus imported (client page) totals.
++ */
++void
++SweetAcceleratorUserClient::v2LogHistogram(void)
++{
++	enum { kTop = 8 };
++	uint64_t sz[kTop] = {}, cnt[kTop] = {}, mapped[kTop] = {};
++	uint64_t pool_n = 0, imp_n = 0, imp_bytes = 0, other_bytes = 0;
++	for (uint32_t i = 0; i < fBOCap; i++) {
++		SweetV2BO *bo = &fBO[i];
++		if (bo->md == NULL) {
++			continue;
++		}
++		if (bo->imported || bo->pool_pa == 0) {
++			imp_n++;
++			imp_bytes += bo->bytes;
++			continue;
++		}
++		pool_n++;
++		int k;
++		for (k = 0; k < kTop && cnt[k] != 0 && sz[k] != bo->bytes; k++) {
++		}
++		if (k == kTop) {
++			other_bytes += bo->bytes;
++			continue;
++		}
++		sz[k] = bo->bytes;
++		cnt[k]++;
++		mapped[k] += bo->iova != 0;
++	}
++	IOLog("SWEET MTL: v2 %s live: %llu pool BOs %llu MB, %llu imported %llu MB, other sizes %llu MB\n",
++	    fName, pool_n, fPoolBytes >> 20, imp_n, imp_bytes >> 20, other_bytes >> 20);
++	for (int k = 0; k < kTop && cnt[k] != 0; k++) {
++		IOLog("SWEET MTL: v2 %s live size %llu x%llu (%llu mapped) = %llu MB\n",
++		    fName, sz[k], cnt[k], mapped[k], (sz[k] * cnt[k]) >> 20);
++	}
++}
++
+ bool
+ SweetAcceleratorUserClient::v2PoolAllowed(uint64_t len)
+ {
+@@ -1013,6 +1058,14 @@ SweetAcceleratorUserClient::v2Method(uint32_t method, const void *in, uint32_t i
+ 		if (r == kIOReturnSuccess) {
+ 			fBO[h - 1].pool_pa = pa;
+ 			fPoolBytes += len;
++			if (fPoolBytes >= (256ULL << 20)) {
++				uint64_t now = mach_absolute_time(), ns = 0;
++				absolutetime_to_nanoseconds(now - fHistAt, &ns);
++				if (fHistAt == 0 || ns >= 20ULL * NSEC_PER_SEC) {
++					fHistAt = now;
++					v2LogHistogram();
++				}
++			}
+ 			if (fPoolBytes > fPoolPeak) {
+ 				uint64_t prevPeak = fPoolPeak;
+ 				fPoolPeak = fPoolBytes;
