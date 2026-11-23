@@ -60,8 +60,6 @@ def main():
         blob = tail + buf
         for p in pats:
             k = blob.find(p)
-            if k >= 0 and k < len(tail) and pos and False:
-                k = blob.find(p, k + 1)
             while k >= 0:
                 a = pos - len(tail) + k
                 print(f'{p[::-1].hex()}: image byte 0x{a:x} (block {a // bs} +0x{a % bs:x})')
