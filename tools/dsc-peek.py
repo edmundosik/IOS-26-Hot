@@ -226,7 +226,7 @@ def dump_sym(c, spec):
     lib, name, n = spec.rsplit(':', 2)
     mh = image_mh(c, lib)
     syms = c.symbols(mh)
-    hit = [v for v, s in syms if s == name]
+    hit = [v for v, s in syms if s in (name, '_' + name)]
     if not hit:
         print(f'== {name}: not found in {lib}')
         return
