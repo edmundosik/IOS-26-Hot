@@ -20,7 +20,7 @@ if [ "$target" = ios ]; then
 	out=$T/build-ios
 	sdk=$(xcrun --sdk iphoneos --show-sdk-path)
 	cross=$T/ios16.cross
-	flags="'-target', 'arm64-apple-ios16.0', '-isysroot', '$sdk', '-fstack-protector-strong'"
+	flags="'-target', 'arm64-apple-ios16.0', '-isysroot', '$sdk', '-fstack-protector-strong', '-D_DARWIN_C_SOURCE'"
 	cat > "$cross" <<EOF
 [binaries]
 c = '$(xcrun --sdk iphoneos --find clang)'
