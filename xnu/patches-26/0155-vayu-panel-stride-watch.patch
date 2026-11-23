@@ -1,0 +1,70 @@
+vayu: watch the panel setup while the GPU owns it
+
+After about 1.5 h of the data-migration screen the bar came out slanted
+again although the kernel log shows a single stride write (4352, latched).
+Every 5 s, log any change of VIG0 stride/address/size/format (first 64)
+and restore the stride when it moved.
+
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -512,6 +512,35 @@
+ 	    a6_rd(SSPP_VIG(0) + SSPP_YSTRIDE0), a6_rd(CTL(0) + CTL_FLUSH));
+ }
+ 
++/*
++ * Called every 5 s while the GPU owns the panel: log any change in VIG0's
++ * setup (stride, address, size, format) and put the stride back if it moved.
++ * On vayu the bar came out slanted again after a long run with no stride
++ * write of ours in the log.
++ */
++void
++sweet_gpu_panel_check(uint32_t stride)
++{
++	static uint32_t last_stride, last_addr, last_size, last_fmt, changes;
++	uint32_t s = a6_rd(SSPP_VIG(0) + SSPP_YSTRIDE0);
++	uint32_t addr = a6_rd(SSPP_VIG(0) + 0x14);
++	uint32_t size = a6_rd(SSPP_VIG(0) + 0x00);
++	uint32_t fmt = a6_rd(SSPP_VIG(0) + 0x30);
++	if (s != last_stride || addr != last_addr || size != last_size || fmt != last_fmt) {
++		if (changes++ < 64) {
++			a6_log("panel check: vig0 stride %u (want %u) addr %x size %x fmt %x, ctl0 flush %x\n",
++			    s, stride, addr, size, fmt, a6_rd(CTL(0) + CTL_FLUSH));
++		}
++		last_stride = s;
++		last_addr = addr;
++		last_size = size;
++		last_fmt = fmt;
++	}
++	if ((s & 0xffff) != stride) {
++		sweet_gpu_panel_stride(stride);
++	}
++}
++
+ /* ---- surfaces ---- */
+ 
+ static int present_wait_locked(uint32_t k, const char *why);
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -49,6 +49,7 @@
+ 	uint32_t fb_pitch, uint32_t corner_radius, uint32_t *out_dx, uint32_t *out_dy,
+ 	uint32_t *out_dw, uint32_t *out_dh);
+ void sweet_gpu_panel_stride(uint32_t stride);
++void sweet_gpu_panel_check(uint32_t stride);
+ extern int sweet_display_fit_x, sweet_display_fit_y, sweet_display_fit_w, sweet_display_fit_h;
+ extern volatile uint32_t sweet_backlight_alpha;
+ }
+@@ -317,7 +318,12 @@
+ 		fb->fLast5sPresents = presents;
+ 		fb->fLast5sAvgUs = avg_us;
+ 		fb->fLast5sFpsX10 = (uint32_t)(swaps * 2ULL);
++		bool gpu = fb->fGPU;
++		uint32_t rowBytes = fb->fRowBytes;
+ 		IOLockUnlock(fb->fLock);
++		if (gpu) {
++			sweet_gpu_panel_check(rowBytes);
++		}
+ 		if (swaps || presents) {
+ 			IOLog("SWEET FB: 5s: %llu swaps (%llu.%llu fps), %llu panel copies, avg copy %llu us\n",
+ 			    swaps, swaps / 5, (swaps * 2) % 10, presents, avg_us);
