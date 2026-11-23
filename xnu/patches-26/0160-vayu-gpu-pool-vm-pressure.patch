@@ -1,0 +1,122 @@
+diff --git a/bsd/kern/kern_memorystatus_notify.c b/bsd/kern/kern_memorystatus_notify.c
+index 296aa22..399ead7 100644
+--- a/bsd/kern/kern_memorystatus_notify.c
++++ b/bsd/kern/kern_memorystatus_notify.c
+@@ -2150,3 +2150,29 @@ SYSCTL_PROC(_kern, OID_AUTO, memorystatus_vm_pressure_send, CTLTYPE_QUAD | CTLFL
+ #endif /* DEBUG || DEVELOPMENT */
+ 
+ #endif /* VM_PRESSURE_EVENTS */
++
++/*
++ * vayu (sweet 0160): the GPU's memory is a fixed 944 MB pool outside the VM, so it never raises VM pressure and
++ * backboardd's render server (which purges its caches on memory pressure, as every Apple framework does) kept
++ * growing until a pipeline build failed and it aborted. sweet_gpu.c calls this when the pool runs short: every
++ * process listening for the level gets that EVFILT_MEMORYSTATUS event, as kern.memorystatus_vm_pressure_send does.
++ */
++void sweet_memorystatus_gpu_pressure(int fflags);
++void
++sweet_memorystatus_gpu_pressure(int fflags)
++{
++	struct knote *kn = NULL;
++	boolean_t found = FALSE;
++
++	memorystatus_klist_lock();
++	SLIST_FOREACH(kn, &memorystatus_klist, kn_selnext) {
++		if (kn->kn_sfflags & fflags) {
++			kn->kn_fflags = fflags;
++			found = TRUE;
++		}
++	}
++	if (found) {
++		KNOTE(&memorystatus_klist, 0);
++	}
++	memorystatus_klist_unlock();
++}
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index 0906f9d..a7e515e 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -31,6 +31,7 @@
+ #include <libkern/libkern.h>
+ #include <mach/mach_time.h>
+ #include "sweet_a6xx.h"
++#include <sys/event.h>
+ #include <sweet_diag.h>
+ #include "../../iokit/Kernel/arm/SweetDisplayMask.h"
+ 
+@@ -1121,6 +1122,47 @@ sweet_gpu_pool_pressure(void)
+ 	}
+ 	return sweet_gpu_pool_avail() < low_bytes || mach_absolute_time() < gpool_pressure_until;
+ }
++
++/*
++ * The same pressure as VM memory pressure for the frameworks (sweet 0160): WARN while less than sweetgpupressure MB
++ * are free, CRITICAL for 2 s after a refusal or failure, NORMAL once it clears. Sent on a change and repeated every
++ * 2 s while it lasts. Thread context only (no locks held): the Metal user client's BoAlloc and Query.
++ */
++void sweet_memorystatus_gpu_pressure(int fflags);
++void sweet_gpu_pool_pressure_poll(void);
++void
++sweet_gpu_pool_pressure_poll(void)
++{
++	static int last_fflags = NOTE_MEMORYSTATUS_PRESSURE_NORMAL;
++	static uint64_t last_sent;
++	static uint32_t enabled = 2;
++	if (enabled == 2) {
++		enabled = 1;
++		PE_parse_boot_argn("sweetgpuvmpressure", &enabled, sizeof(enabled));
++	}
++	if (!enabled) {
++		return;
++	}
++	uint64_t now = mach_absolute_time(), span = 0;
++	nanoseconds_to_absolutetime(2000000000ULL, &span);
++	int fflags = NOTE_MEMORYSTATUS_PRESSURE_NORMAL;
++	if (now < gpool_pressure_until) {
++		fflags = NOTE_MEMORYSTATUS_PRESSURE_CRITICAL;
++	} else if (sweet_gpu_pool_pressure()) {
++		fflags = NOTE_MEMORYSTATUS_PRESSURE_WARN;
++	}
++	if (fflags == last_fflags && (fflags == NOTE_MEMORYSTATUS_PRESSURE_NORMAL || now - last_sent < span)) {
++		return;
++	}
++	if (fflags != last_fflags) {
++		a6_log("pool: memory pressure %s (%llu MB free)\n",
++		    fflags == NOTE_MEMORYSTATUS_PRESSURE_CRITICAL ? "critical" :
++		    fflags == NOTE_MEMORYSTATUS_PRESSURE_WARN ? "warn" : "normal", sweet_gpu_pool_avail() >> 20);
++	}
++	last_fflags = fflags;
++	last_sent = now;
++	sweet_memorystatus_gpu_pressure(fflags);
++}
+ static bool gpool_ready;
+ static LCK_MTX_DECLARE(sweet_gpool_lock, &sweet_gpu_grp);
+ 
+diff --git a/iokit/Kernel/arm/SweetAccelerator.cpp b/iokit/Kernel/arm/SweetAccelerator.cpp
+index 699261a..dd2e97d 100644
+--- a/iokit/Kernel/arm/SweetAccelerator.cpp
++++ b/iokit/Kernel/arm/SweetAccelerator.cpp
+@@ -76,6 +76,7 @@ int sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa);
+ uint64_t sweet_gpu_pool_avail(void);
+ void sweet_gpu_pool_note_pressure(void);
+ bool sweet_gpu_pool_pressure(void);
++void sweet_gpu_pool_pressure_poll(void);
+ void sweet_gpu_pool_free(uint64_t pa, uint64_t bytes);
+ }
+ 
+@@ -944,6 +945,7 @@ SweetAcceleratorUserClient::v2Method(uint32_t method, const void *in, uint32_t i
+ 		rp->input_bits = 39;
+ 		rp->output_bits = 36;
+ 		rp->flags = NativeAdrenoParamsHostImport;
++		sweet_gpu_pool_pressure_poll();
+ 		if (sweet_gpu_pool_pressure()) {
+ 			rp->flags |= NativeAdrenoParamsPoolPressure;
+ 		}
+@@ -974,6 +976,7 @@ SweetAcceleratorUserClient::v2Method(uint32_t method, const void *in, uint32_t i
+ 			return kIOReturnBadArgument;
+ 		}
+ 		/* memory XNU does not manage (sweet_gpu.c: no cacheable alias), zeroed through a WC kernel view */
++		sweet_gpu_pool_pressure_poll();
+ 		(void)sweet_v2_reap_retired();
+ 		sweet_zombie_sweep();
+ 		uint64_t len = round_page_64(rq->bytes), pa = 0;
