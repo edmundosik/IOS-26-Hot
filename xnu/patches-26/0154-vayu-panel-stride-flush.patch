@@ -1,0 +1,51 @@
+vayu: latch the GPU panel stride on a video-mode CTL
+
+vayu scans out through VIG0 alone (1080 columns) in DSC video mode, so the
+CTL0 flush of 0x3 that works for RMX1931 command mode with autorefresh never
+latched the 4352-byte stride: all frames (and the console) came out slanted.
+Flush each CTL that drives an interface with the CTL bit (17), wait two frames
+and log the read-back stride and pending flush.
+
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -481,16 +481,35 @@
+ #define MDP             0x0ae00000ULL
+ #define SSPP_VIG(n)     (MDP + 0x5000 + 0x2000ULL * (n))
+ #define SSPP_YSTRIDE0   0x24
+-#define CTL0_FLUSH      (MDP + 0x2000 + 0x18)
++#define CTL(n)          (MDP + 0x2000 + 0x200ULL * (n))
++#define CTL_FLUSH       0x18
++#define CTL_INTF_ACTIVE 0xf4
++#define FLUSH_CTL       (1u << 17)
+ 
+-/* ABL scans out through VIG0 + VIG1 (540 columns each); autorefresh picks a flushed change up. */
++/*
++ * RMX1931: ABL scans out through VIG0 + VIG1 (540 columns each) on CTL0, command mode with
++ * autorefresh. vayu: VIG0 alone (1080 columns), DSC video mode; a video-mode CTL only latches a
++ * flush that also carries the CTL bit, so flush every CTL that drives an interface with it.
++ */
+ void
+ sweet_gpu_panel_stride(uint32_t stride)
+ {
+ 	a6_wr(SSPP_VIG(0) + SSPP_YSTRIDE0, stride);
+ 	a6_wr(SSPP_VIG(1) + SSPP_YSTRIDE0, stride);
+-	a6_wr(CTL0_FLUSH, 0x3);
+-	a6_log("panel stride %u\n", stride);
++	int flushed = 0;
++	for (int i = 0; i < 6; i++) {
++		if (a6_rd(CTL(i) + CTL_INTF_ACTIVE) != 0) {
++			a6_wr(CTL(i) + CTL_FLUSH, 0x3 | FLUSH_CTL);
++			a6_log("panel stride %u: ctl%d flush\n", stride, i);
++			flushed++;
++		}
++	}
++	if (!flushed) {
++		a6_wr(CTL(0) + CTL_FLUSH, 0x3);
++	}
++	delay(40000);		/* two frames at 60 Hz: the flush latches at a vsync */
++	a6_log("panel stride %u: vig0 now %u, ctl0 flush pending %x\n", stride,
++	    a6_rd(SSPP_VIG(0) + SSPP_YSTRIDE0), a6_rd(CTL(0) + CTL_FLUSH));
+ }
+ 
+ /* ---- surfaces ---- */
