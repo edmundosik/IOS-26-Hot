@@ -1,0 +1,789 @@
+vayu: Novatek NT36672C touchscreen over bit-banged SPI (patch 0157)
+
+New bsd/dev/vayu_touch.c. The touch IC sits on SE17 (spi@c80000, GPIO55-58),
+reset GPIO12, IRQ GPIO122. SE17 is provisioned for GSI DMA, so the pins are
+driven as GPIOs and the GENI block is left alone. The IC has no flash: the
+driver writes j20s_novatek_ts_fw02.bin (from /chosen "gpufw,<name>", i.e. the
+mkpayload.py --gpufw directory) into its SRAM with the hw-CRC boot flow of
+Xiaomi's nt36672c driver, then polls the 65-byte event buffer on a latched
+TLMM rising-edge status and feeds SweetHID. Boot-args: vayutouch=0,
+vayutouchdelay=N, vayutouchlog=1, vayutouchfw=NAME.
+
+diff --git a/bsd/conf/files b/bsd/conf/files
+index e083ec3..0c4fb77 100644
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -109,6 +109,7 @@ bsd/dev/sweet_keys.c			standard
+ bsd/dev/sweet_touch.c			standard
+ bsd/dev/sweet_fts.c			standard
+ bsd/dev/rmx1931_touch.c			standard
++bsd/dev/vayu_touch.c			standard
+ bsd/dev/rmx1931_battery.c		standard
+ bsd/dev/rmx1931_audio.c			standard
+ bsd/dev/rmx1931_torch.c			standard
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 5c8a75f..f4759d3 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -54,6 +54,7 @@ extern void sweet_keys_init(void);
+ extern void sweet_touch_init(void);
+ extern void sweet_fts_init(void);
+ extern void rmx1931_touch_init(void);
++extern void vayu_touch_init(void);
+ extern void rmx1931_battery_init(void);
+ extern void rmx1931_torch_init(void);
+ extern void rmx1931_haptic_init(void);
+@@ -674,6 +675,7 @@ sweet_ufs_init(void)
+ 	sweet_touch_init();
+ 	sweet_fts_init();
+ 	rmx1931_touch_init();
++	vayu_touch_init();       /* Novatek NT36672C SPI: bsd/dev/vayu_touch.c */
+ 	rmx1931_battery_init();
+ 	rmx1931_torch_init();
+ 	rmx1931_haptic_init();
+diff --git a/bsd/dev/vayu_touch.c b/bsd/dev/vayu_touch.c
+new file mode 100644
+index 0000000..bbb7dc7
+--- /dev/null
++++ b/bsd/dev/vayu_touch.c
+@@ -0,0 +1,740 @@
++/*
++ * Poco X3 Pro (vayu, SM8150-AC) touchscreen: Novatek NT36672C TDDI (in-cell,
++ * CSOT panel) on SPI. Call once after the scheduler is running; all work runs
++ * on one kernel thread.
++ *
++ * Hardware (vayu live FDT, ts_novatek + spi@c80000/touch_spi@0, and Xiaomi's
++ * nt36672c driver, drivers/input/touchscreen/xiaomi/nt36672c):
++ *   - SPI:   QUPv3 wrapper 2 SE0 (qup17): MISO GPIO55, MOSI GPIO56,
++ *            CLK GPIO57, CS GPIO58; SPI mode 0, IC max 10 MHz.
++ *   - Reset: GPIO12 (TLMM NORTH tile), active low.
++ *   - IRQ:   GPIO122 (TLMM SOUTH tile), rising edge.
++ *   - Power: none of its own; the panel rails ABL already turned on.
++ *   - Firmware: the IC has no flash. The host writes the firmware into its
++ *     SRAM after every reset (Xiaomi: j20s_novatek_ts_fw02.bin for CSOT).
++ *     Here it comes from the ADT: /chosen "gpufw,j20s_novatek_ts_fw02.bin"
++ *     (put the file in the mkpayload.py --gpufw directory).
++ *
++ * The SE17 GENI firmware is provisioned for GSI DMA (dmas in the live FDT;
++ * RMX1931 found FIFO mode disabled on the same SE), so the bus is driven as
++ * plain GPIOs (bit-banged SPI). The GENI block and its clocks are never
++ * touched. Nothing is written anywhere except TLMM pin registers and the
++ * touch IC's own SRAM and registers.
++ *
++ * Boot-args:
++ *   vayutouch=0       disable the driver (default 1)
++ *   vayutouchdelay=N  start after N seconds (default 8)
++ *   vayutouchlog=1    log every touch frame (the first 32 are logged anyway)
++ *   vayutouchfw=NAME  firmware file name (default j20s_novatek_ts_fw02.bin)
++ */
++#if defined(ARM64_BOARD_CONFIG_SWEET)
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/errno.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
++#include <kern/sched_prim.h>
++#include <machine/machine_routines.h>
++#include <pexpert/pexpert.h>
++#include <pexpert/device_tree.h>
++#include <mach/mach_time.h>
++#include <libkern/libkern.h>
++#include <sweet_diag.h>
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++extern kern_return_t thread_terminate(thread_t);
++extern void sweet_hid_touch(int finger, int down, int x, int y);
++void vayu_touch_init(void);
++
++#define VT_NORTH_PA     0x03900000u     /* TLMM 0x3000000 + NORTH tile */
++#define VT_SOUTH_PA     0x03d00000u     /* TLMM 0x3000000 + SOUTH tile */
++#define VT_CFG(n)       ((uint32_t)(n) * 0x1000u)
++#define VT_IO(n)        (VT_CFG(n) + 0x4u)
++#define VT_INTR_CFG(n)  (VT_CFG(n) + 0x8u)
++#define VT_INTR_ST(n)   (VT_CFG(n) + 0xcu)
++#define VT_PIN_RESET    12u             /* NORTH */
++#define VT_PIN_MISO     55u             /* SOUTH, qup17 function 1 */
++#define VT_PIN_MOSI     56u
++#define VT_PIN_CLK      57u
++#define VT_PIN_CS       58u
++#define VT_PIN_IRQ      122u            /* SOUTH */
++#define VT_MAX          10u
++#define VT_PANEL_W      1080
++#define VT_PANEL_H      2400
++
++/* nt36xxx.h / nt36xxx_mem_map.h (NT36675 map = NT36672C trim ids) */
++#define NVT_ENG_RST     0x7fff80u
++#define NVT_SWRST_N8    0x03f0feu       /* live FDT novatek,swrst-n8-addr */
++#define NVT_SPI_RD_FAST 0x03f310u       /* live FDT novatek,spi-rd-fast-addr */
++#define NVT_CHIPID      0x01f64eu
++#define EVT_HOST_CMD    0x50u
++#define EVT_HANDSHAKE   0x51u
++#define EVT_RESET_DONE  0x60u
++#define EVT_FWINFO      0x78u
++#define EVT_PROJECTID   0x9au
++#define RST_INIT        0xa0u
++#define RST_MAX         0xafu
++#define POINT_LEN       65u
++#define NVT_CHUNK       (63u * 1024u)
++
++struct nvt_map {
++	const char *name;
++	uint32_t event_buf, boot_rdy;
++	uint32_t ilm_len, dlm_len, ilm_des, dlm_des;
++	uint32_t g_ilm_crc, g_dlm_crc, r_ilm_crc, r_dlm_crc;
++	uint32_t bld_crc_en, bld_ilm_dlm_crc;
++	uint8_t hw_crc;
++};
++
++static const struct nvt_map nt36675_map = {
++	"NT36675/NT36672C", 0x22d00, 0x3f10d,
++	0x3f118, 0x3f130, 0x3f128, 0x3f12c,
++	0x3f100, 0x3f104, 0x3f120, 0x3f124,
++	0x3f30e, 0x3f133, 2,
++};
++static const struct nvt_map nt36672a_map = {
++	"NT36672A", 0x21c00, 0x3f10d,
++	0x3f118, 0x3f130, 0x3f128, 0x3f12c,
++	0x3f100, 0x3f104, 0x3f120, 0x3f124,
++	0x3f30e, 0x3f133, 1,
++};
++
++static const struct {
++	uint8_t id[6], mask[6];
++	const struct nvt_map *map;
++} nvt_trim[] = {
++	{{0x0c, 0xff, 0xff, 0x72, 0x66, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36675_map},
++	{{0xff, 0xff, 0xff, 0x75, 0x66, 0x03}, {0, 0, 0, 1, 1, 1}, &nt36675_map},
++	{{0x0b, 0xff, 0xff, 0x72, 0x66, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36672a_map},
++	{{0x0b, 0xff, 0xff, 0x82, 0x66, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36672a_map},
++	{{0x0b, 0xff, 0xff, 0x25, 0x65, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36672a_map},
++	{{0x0a, 0xff, 0xff, 0x72, 0x65, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36672a_map},
++	{{0x0a, 0xff, 0xff, 0x72, 0x66, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36672a_map},
++	{{0x0a, 0xff, 0xff, 0x82, 0x66, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36672a_map},
++	{{0x0a, 0xff, 0xff, 0x70, 0x66, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36672a_map},
++	{{0x0b, 0xff, 0xff, 0x70, 0x66, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36672a_map},
++	{{0x0a, 0xff, 0xff, 0x72, 0x67, 0x03}, {1, 0, 0, 1, 1, 1}, &nt36672a_map},
++};
++
++/* Firmware partitions (nt36xxx_fw_update.c nvt_bin_header_parser). */
++#define NVT_MAX_PART    24u
++struct nvt_part {
++	uint32_t bin, sram, size, crc;
++};
++
++static struct {
++	vm_offset_t north, south;
++	bool started, dead;
++	int log;
++	char fw_name[64];
++	const uint8_t *fw;
++	uint32_t fw_len;
++	unsigned nparts;
++	struct nvt_part part[NVT_MAX_PART];
++	const struct nvt_map *map;
++	unsigned abs_x, abs_y;
++	uint32_t active;
++	int x[VT_MAX], y[VT_MAX];
++	uint32_t mosi;
++} vt;
++static int vt_sleep_chan;
++
++static uint32_t
++vt_rd(vm_offset_t base, uint32_t off)
++{
++	uint32_t v = *(volatile uint32_t *)(base + off);
++	__asm__ volatile("dmb oshld" ::: "memory");
++	return v;
++}
++
++static void
++vt_wr(vm_offset_t base, uint32_t off, uint32_t val)
++{
++	__asm__ volatile("dmb oshst" ::: "memory");
++	*(volatile uint32_t *)(base + off) = val;
++	__asm__ volatile("dsb osh" ::: "memory");
++}
++
++static void
++vt_wait(unsigned ms)
++{
++	uint64_t deadline;
++	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
++	(void)assert_wait_deadline(&vt_sleep_chan, THREAD_UNINT, deadline);
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++/* TLMM: [1:0] pull (0 none, 1 down, 3 up), [5:2] function, [8:6] drive (mA/2 - 1), [9] output enable. */
++static void
++vt_gpio(vm_offset_t tile, unsigned pin, unsigned func, unsigned pull, unsigned drive, bool out, bool high)
++{
++	if (out) {
++		vt_wr(tile, VT_IO(pin), high ? 2u : 0u);
++	}
++	uint32_t cfg = vt_rd(tile, VT_CFG(pin)) & ~0x3ffu;
++	cfg |= (func << 2) | pull | (drive << 6) | (out ? 0x200u : 0u);
++	vt_wr(tile, VT_CFG(pin), cfg);
++}
++
++/* ---- bit-banged SPI, mode 0 (CPOL 0, CPHA 0), MSB first ---- */
++
++static inline void
++vt_pin(unsigned pin, uint32_t high)
++{
++	*(volatile uint32_t *)(vt.south + VT_IO(pin)) = high;
++}
++
++static inline uint32_t
++vt_sync(void)
++{
++	/* A read of the same tile makes the previous pin write land first. */
++	return *(volatile uint32_t *)(vt.south + VT_IO(VT_PIN_MISO));
++}
++
++static uint8_t
++vt_byte(uint8_t out)
++{
++	uint8_t in = 0;
++	for (int bit = 7; bit >= 0; --bit) {
++		uint32_t mosi = (out >> bit) & 1u ? 2u : 0u;
++		if (mosi != vt.mosi) {
++			vt_pin(VT_PIN_MOSI, mosi);
++			vt.mosi = mosi;
++		}
++		(void)vt_sync();
++		vt_pin(VT_PIN_CLK, 2u);
++		in = (uint8_t)((in << 1) | (vt_sync() & 1u));
++		vt_pin(VT_PIN_CLK, 0u);
++		(void)vt_sync();
++	}
++	return in;
++}
++
++static void
++vt_cs(bool active)
++{
++	vt_pin(VT_PIN_CLK, 0u);
++	(void)vt_sync();
++	vt_pin(VT_PIN_CS, active ? 0u : 2u);
++	(void)vt_sync();
++	delay(1);
++}
++
++/*
++ * One CS-held transfer: hdr bytes, then dlen bytes of data out (from dout,
++ * or zeros), with everything clocked in after the first skip bytes stored in din.
++ */
++static void
++vt_xfer(const uint8_t *hdr, unsigned hlen, const uint8_t *dout, uint8_t *din,
++    unsigned dlen, unsigned skip)
++{
++	vt_cs(true);
++	for (unsigned i = 0; i < hlen; ++i) {
++		(void)vt_byte(hdr[i]);
++	}
++	for (unsigned i = 0; i < skip; ++i) {
++		(void)vt_byte(0);
++	}
++	for (unsigned i = 0; i < dlen; ++i) {
++		uint8_t b = vt_byte(dout ? dout[i] : 0);
++		if (din) {
++			din[i] = b;
++		}
++	}
++	vt_cs(false);
++}
++
++/* nt36xxx.c CTP_SPI_WRITE: addr | 0x80, data. */
++static void
++nvt_write(uint8_t addr, const uint8_t *data, unsigned n)
++{
++	uint8_t a = addr | 0x80u;
++	vt_xfer(&a, 1, data, NULL, n, 0);
++}
++
++/* nt36xxx.c CTP_SPI_READ: addr & 0x7f, one dummy byte, then data. */
++static void
++nvt_read(uint8_t addr, uint8_t *out, unsigned n)
++{
++	uint8_t a = addr & 0x7fu;
++	vt_xfer(&a, 1, NULL, out, n, 1);
++}
++
++static void
++nvt_set_page(uint32_t addr)
++{
++	uint8_t b[2] = {(uint8_t)(addr >> 15), (uint8_t)(addr >> 7)};
++	nvt_write(0x7f, b, 2); /* 0xff | 0x80 == 0xff */
++}
++
++static void
++nvt_write_addr(uint32_t addr, uint8_t val)
++{
++	nvt_set_page(addr);
++	nvt_write((uint8_t)(addr & 0x7fu), &val, 1);
++}
++
++static uint8_t
++nvt_read_addr(uint32_t addr)
++{
++	uint8_t v = 0;
++	nvt_set_page(addr);
++	nvt_read((uint8_t)(addr & 0x7fu), &v, 1);
++	return v;
++}
++
++static void
++nvt_bootloader_reset(void)
++{
++	nvt_write_addr(NVT_SWRST_N8, 0x69);
++	delay(5000);
++	nvt_write_addr(NVT_SPI_RD_FAST, 0x00);
++}
++
++static bool
++nvt_check_chip(void)
++{
++	for (unsigned retry = 0; retry < 5; ++retry) {
++		uint8_t id[6] = {0};
++		nvt_bootloader_reset();
++		nvt_set_page(NVT_CHIPID);
++		nvt_read((uint8_t)(NVT_CHIPID & 0x7fu), id, sizeof(id));
++		printf("SWEET NVT: chip id %02x %02x %02x %02x %02x %02x\n",
++		    id[0], id[1], id[2], id[3], id[4], id[5]);
++		for (unsigned t = 0; t < sizeof(nvt_trim) / sizeof(nvt_trim[0]); ++t) {
++			unsigned i;
++			for (i = 0; i < 6; ++i) {
++				if (nvt_trim[t].mask[i] && id[i] != nvt_trim[t].id[i]) {
++					break;
++				}
++			}
++			if (i == 6) {
++				vt.map = nvt_trim[t].map;
++				printf("SWEET NVT: %s (hw crc %u, event buffer %#x)\n",
++				    vt.map->name, vt.map->hw_crc, vt.map->event_buf);
++				return true;
++			}
++		}
++		vt_wait(10);
++	}
++	return false;
++}
++
++/* ---- firmware ---- */
++
++static uint32_t
++le32(const uint8_t *p)
++{
++	return p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
++}
++
++static bool
++nvt_fw_load(void)
++{
++	DTEntry chosen;
++	void const *data;
++	unsigned size;
++	char prop[96];
++	snprintf(prop, sizeof(prop), "gpufw,%s", vt.fw_name);
++	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) != kSuccess ||
++	    SecureDTGetProperty(chosen, prop, &data, &size) != kSuccess) {
++		printf("SWEET NVT: no %s in /chosen (put the file in the mkpayload.py --gpufw directory)\n",
++		    vt.fw_name);
++		return false;
++	}
++	const uint8_t *fw = data;
++	/* Size to write: the last 4 KB sector that ends in "NVT" or "MOD". */
++	uint32_t need = 0;
++	for (uint32_t s = size / 4096u; s > 0; --s) {
++		const uint8_t *e = fw + s * 4096u - 3u;
++		if ((e[0] == 'N' && e[1] == 'V' && e[2] == 'T') ||
++		    (e[0] == 'M' && e[1] == 'O' && e[2] == 'D')) {
++			need = s * 4096u;
++			break;
++		}
++	}
++	if (need < 8192u) {
++		printf("SWEET NVT: %s (%u bytes) has no NVT/MOD end flag\n", vt.fw_name, size);
++		return false;
++	}
++	uint8_t ver = fw[need - 4096u], bar = fw[need - 4096u + 1u];
++	if ((uint8_t)(ver + bar) != 0xffu) {
++		printf("SWEET NVT: bad firmware version %#x bar %#x\n", ver, bar);
++		return false;
++	}
++	/* Header: ILM and DLM at 0x00 (bin, sram, size; crc at 0x18), info sections
++	 * from 0x30 (16 bytes: sram, size, bin, crc) up to le32(0), overlays at DLM. */
++	uint32_t end = le32(fw);
++	unsigned info = 0, ovly = 0;
++	for (uint32_t pos = 0x30; pos < end && pos < 0x1000u; pos += 0x10) {
++		info++;
++	}
++	if (fw[0x28] & 0x10u) {
++		ovly = fw[0x28] & 0x0fu;
++	}
++	unsigned n = 2 + info + ovly;
++	if (n > NVT_MAX_PART) {
++		printf("SWEET NVT: %u firmware partitions, too many\n", n);
++		return false;
++	}
++	for (unsigned i = 0; i < n; ++i) {
++		struct nvt_part *p = &vt.part[i];
++		uint32_t pos;
++		if (i < 2) {
++			p->bin = le32(fw + i * 12u);
++			p->sram = le32(fw + 4u + i * 12u);
++			p->size = le32(fw + 8u + i * 12u);
++			p->crc = le32(fw + 0x18u + i * 4u);
++		} else {
++			pos = (i < 2 + info) ? 0x30u + 0x10u * (i - 2) :
++			    vt.part[1].bin + 0x10u * (i - 2 - info);
++			if (pos + 16u > size) {
++				printf("SWEET NVT: partition %u header past the end\n", i);
++				return false;
++			}
++			p->sram = le32(fw + pos);
++			p->size = le32(fw + pos + 4u);
++			p->bin = le32(fw + pos + 8u);
++			p->crc = le32(fw + pos + 12u);
++		}
++		/* The Linux driver writes size + 1 bytes. */
++		if (p->size && (uint64_t)p->bin + p->size + 1u > size) {
++			printf("SWEET NVT: partition %u (bin %#x size %#x) past the end (%#x)\n",
++			    i, p->bin, p->size, size);
++			return false;
++		}
++		printf("SWEET NVT: part %u sram %#x size %#x bin %#x crc %#x\n",
++		    i, p->sram, p->size, p->bin, p->crc);
++	}
++	vt.fw = fw;
++	vt.fw_len = size;
++	vt.nparts = n;
++	printf("SWEET NVT: firmware %s %u bytes, version %#x, %u partitions\n",
++	    vt.fw_name, size, ver, n);
++	return true;
++}
++
++static void
++nvt_set_crc_bank(uint32_t des, uint32_t sram, uint32_t len_addr, uint32_t size,
++    uint32_t g_crc_addr, uint32_t crc)
++{
++	uint8_t b[4];
++	nvt_set_page(des);
++	b[0] = (uint8_t)sram;
++	b[1] = (uint8_t)(sram >> 8);
++	b[2] = (uint8_t)(sram >> 16);
++	nvt_write((uint8_t)(des & 0x7fu), b, 3);
++	b[0] = (uint8_t)size;
++	b[1] = (uint8_t)(size >> 8);
++	b[2] = (uint8_t)((size >> 16) & 1u);
++	nvt_write((uint8_t)(len_addr & 0x7fu), b, vt.map->hw_crc > 1 ? 3 : 2);
++	b[0] = (uint8_t)crc;
++	b[1] = (uint8_t)(crc >> 8);
++	b[2] = (uint8_t)(crc >> 16);
++	b[3] = (uint8_t)(crc >> 24);
++	nvt_write((uint8_t)(g_crc_addr & 0x7fu), b, 4);
++}
++
++static int
++nvt_reset_state(uint8_t want, unsigned tries)
++{
++	uint8_t b[5] = {0};
++	nvt_set_page(vt.map->event_buf | EVT_RESET_DONE);
++	for (unsigned i = 0; i <= tries; ++i) {
++		nvt_read(EVT_RESET_DONE, b, sizeof(b));
++		if (b[0] >= want && b[0] <= RST_MAX) {
++			return 0;
++		}
++		vt_wait(10);
++	}
++	printf("SWEET NVT: reset state %#x %02x %02x %02x %02x (want >= %#x)\n",
++	    b[0], b[1], b[2], b[3], b[4], want);
++	return ETIMEDOUT;
++}
++
++/* nt36xxx_fw_update.c nvt_download_firmware_hw_crc */
++static int
++nvt_download(void)
++{
++	uint64_t t0 = mach_absolute_time(), ns;
++	for (unsigned retry = 0; retry < 3; ++retry) {
++		nvt_bootloader_reset();
++		for (unsigned i = 0; i < vt.nparts; ++i) {
++			const struct nvt_part *p = &vt.part[i];
++			if (!p->size) {
++				continue;
++			}
++			uint32_t left = p->size + 1u, sram = p->sram, bin = p->bin;
++			while (left) {
++				uint32_t len = left < NVT_CHUNK ? left : NVT_CHUNK;
++				nvt_set_page(sram);
++				uint8_t a = (uint8_t)((sram & 0x7fu) | 0x80u);
++				vt_xfer(&a, 1, vt.fw + bin, NULL, len, 0);
++				sram += len;
++				bin += len;
++				left -= len;
++			}
++		}
++		nvt_set_crc_bank(vt.map->ilm_des, vt.part[0].sram, vt.map->ilm_len,
++		    vt.part[0].size, vt.map->g_ilm_crc, vt.part[0].crc);
++		nvt_set_crc_bank(vt.map->dlm_des, vt.part[1].sram, vt.map->dlm_len,
++		    vt.part[1].size, vt.map->g_dlm_crc, vt.part[1].crc);
++		/* BLD CRC on */
++		uint8_t v = nvt_read_addr(vt.map->bld_crc_en);
++		v |= 0x80u;
++		nvt_write((uint8_t)(vt.map->bld_crc_en & 0x7fu), &v, 1);
++		/* clear reset status, enable fw crc */
++		nvt_set_page(vt.map->event_buf);
++		v = 0;
++		nvt_write(EVT_RESET_DONE, &v, 1);
++		v = 0xae;
++		nvt_write(EVT_HOST_CMD, &v, 1);
++		/* boot ready */
++		nvt_write_addr(vt.map->boot_rdy, 1);
++		delay(5000);
++		int err = nvt_reset_state(RST_INIT, 10);
++		absolutetime_to_nanoseconds(mach_absolute_time() - t0, &ns);
++		if (!err) {
++			printf("SWEET NVT: firmware running after %llu ms (try %u)\n",
++			    ns / NSEC_PER_MSEC, retry + 1);
++			return 0;
++		}
++		uint8_t crc = nvt_read_addr(vt.map->bld_ilm_dlm_crc);
++		printf("SWEET NVT: download try %u failed (%llu ms), crc flags %#x (done %u ilm-err %u dlm-err %u)\n",
++		    retry + 1, ns / NSEC_PER_MSEC, crc, (crc >> 2) & 1u, crc & 1u, (crc >> 1) & 1u);
++	}
++	return EIO;
++}
++
++static int
++nvt_fw_info(void)
++{
++	uint8_t b[16] = {0};
++	nvt_set_page(vt.map->event_buf | EVT_FWINFO);
++	nvt_read(EVT_FWINFO, b, sizeof(b));
++	unsigned x = ((unsigned)b[4] << 8) | b[5], y = ((unsigned)b[6] << 8) | b[7];
++	uint8_t pid[2] = {0};
++	nvt_set_page(vt.map->event_buf | EVT_PROJECTID);
++	nvt_read(EVT_PROJECTID, pid, sizeof(pid));
++	nvt_set_page(vt.map->event_buf);
++	printf("SWEET NVT: fw ver %#x (bar %#x) x_num %u y_num %u max %ux%u buttons %u pid %#x\n",
++	    b[0], b[1], b[2], b[3], x, y, b[10], (pid[1] << 8) | pid[0]);
++	if ((uint8_t)(b[0] + b[1]) != 0xffu) {
++		return EIO;
++	}
++	vt.abs_x = (x >= 100 && x <= 20000) ? x : VT_PANEL_W;
++	vt.abs_y = (y >= 100 && y <= 40000) ? y : VT_PANEL_H;
++	return 0;
++}
++
++static bool
++nvt_bring_up(void)
++{
++	if (!nvt_check_chip()) {
++		printf("SWEET NVT: no supported Novatek chip on the bus\n");
++		return false;
++	}
++	if (vt.map->hw_crc == 0) {
++		printf("SWEET NVT: chip without hw crc boot is not supported\n");
++		return false;
++	}
++	if (nvt_download()) {
++		return false;
++	}
++	vt_wait(20);
++	for (unsigned i = 0; i < 3; ++i) {
++		if (!nvt_fw_info()) {
++			break;
++		}
++		vt_wait(20);
++	}
++	/* Wait for normal run (Linux does not, but it logs the state). */
++	(void)nvt_reset_state(0xa3, 50);
++	nvt_set_page(vt.map->event_buf);
++	return true;
++}
++
++/* ---- events ---- */
++
++static void
++vt_release_all(void)
++{
++	for (unsigned id = 0; id < VT_MAX; ++id) {
++		if (vt.active & (1u << id)) {
++			sweet_hid_touch((int)id, 0, vt.x[id], vt.y[id]);
++		}
++	}
++	vt.active = 0;
++}
++
++/* Returns 1 for a firmware watchdog/ESD pattern, else 0. */
++static int
++vt_frame(const uint8_t *d, bool logit)
++{
++	uint32_t seen = 0;
++	bool wdt = true, esd = true;
++	for (unsigned i = 0; i < 6; ++i) {
++		if (d[i] != 0xfdu && d[i] != 0xfeu) {
++			wdt = false;
++		}
++		if (d[i] != 0x77u) {
++			esd = false;
++		}
++	}
++	if (logit) {
++		printf("SWEET NVT: frame %02x %02x %02x %02x %02x %02x | %02x %02x %02x %02x %02x %02x\n",
++		    d[0], d[1], d[2], d[3], d[4], d[5], d[6], d[7], d[8], d[9], d[10], d[11]);
++	}
++	if (wdt || esd) {
++		return 1;
++	}
++	for (unsigned i = 0; i < VT_MAX; ++i) {
++		const uint8_t *p = d + 6u * i; /* d[0] is point_data[1] */
++		unsigned id = p[0] >> 3, st = p[0] & 7u;
++		if (id == 0 || id > VT_MAX || (st != 1u && st != 2u)) {
++			continue;
++		}
++		unsigned rx = ((unsigned)p[1] << 4) | (p[3] >> 4);
++		unsigned ry = ((unsigned)p[2] << 4) | (p[3] & 0x0fu);
++		if (rx > vt.abs_x || ry > vt.abs_y) {
++			continue;
++		}
++		int x = (int)(rx * (unsigned)VT_PANEL_W / vt.abs_x);
++		int y = (int)(ry * (unsigned)VT_PANEL_H / vt.abs_y);
++		unsigned f = id - 1;
++		seen |= 1u << f;
++		vt.active |= 1u << f;
++		vt.x[f] = x;
++		vt.y[f] = y;
++		sweet_hid_touch((int)f, 1, x, y);
++	}
++	for (unsigned f = 0; f < VT_MAX; ++f) {
++		if ((vt.active & (1u << f)) && !(seen & (1u << f))) {
++			vt.active &= ~(1u << f);
++			sweet_hid_touch((int)f, 0, vt.x[f], vt.y[f]);
++		}
++	}
++	return 0;
++}
++
++static void
++vt_thread(void *arg, wait_result_t result)
++{
++	unsigned delay_s = 8;
++	(void)arg;
++	(void)result;
++	(void)PE_parse_boot_argn("vayutouchdelay", &delay_s, sizeof(delay_s));
++	printf("SWEET NVT: starting in %u s\n", delay_s);
++	vt_wait(delay_s * 1000u);
++	vt.north = ml_io_map(VT_NORTH_PA, 0x10000);
++	vt.south = ml_io_map(VT_SOUTH_PA, 0x80000);
++	if (!vt.north || !vt.south) {
++		printf("SWEET NVT: MMIO mapping failed\n");
++		goto out;
++	}
++	printf("SWEET NVT: TLMM cfg/io reset=%#x/%#x miso=%#x/%#x mosi=%#x clk=%#x cs=%#x irq=%#x/%#x\n",
++	    vt_rd(vt.north, VT_CFG(VT_PIN_RESET)), vt_rd(vt.north, VT_IO(VT_PIN_RESET)),
++	    vt_rd(vt.south, VT_CFG(VT_PIN_MISO)), vt_rd(vt.south, VT_IO(VT_PIN_MISO)),
++	    vt_rd(vt.south, VT_CFG(VT_PIN_MOSI)), vt_rd(vt.south, VT_CFG(VT_PIN_CLK)),
++	    vt_rd(vt.south, VT_CFG(VT_PIN_CS)),
++	    vt_rd(vt.south, VT_CFG(VT_PIN_IRQ)), vt_rd(vt.south, VT_IO(VT_PIN_IRQ)));
++	if (!nvt_fw_load()) {
++		goto out;
++	}
++	/* Bus pins as plain GPIOs: CS high, CLK low (mode 0), 6 mA like the FDT. */
++	vt_gpio(vt.south, VT_PIN_CS, 0, 0, 2, true, true);
++	vt_gpio(vt.south, VT_PIN_CLK, 0, 0, 2, true, false);
++	vt_gpio(vt.south, VT_PIN_MOSI, 0, 0, 2, true, false);
++	vt_gpio(vt.south, VT_PIN_MISO, 0, 1, 2, false, false);
++	vt.mosi = 0;
++	/*
++	 * IRQ pin: input, pull-down (FDT). Latch rising edges in the TLMM status
++	 * register (raw status on, interrupt to the GIC left disabled), so a
++	 * short pulse between two polls is not missed. INTR_CFG: [0] enable,
++	 * [1] polarity, [3:2] detection (1 = rising), [4] raw status, [7:5] target.
++	 */
++	vt_gpio(vt.south, VT_PIN_IRQ, 0, 1, 7, false, false);
++	vt_wr(vt.south, VT_INTR_CFG(VT_PIN_IRQ),
++	    (vt_rd(vt.south, VT_INTR_CFG(VT_PIN_IRQ)) & ~0x1fu) | (1u << 4) | (1u << 2) | (1u << 1));
++	vt_wr(vt.south, VT_INTR_ST(VT_PIN_IRQ), 0);
++	/* Probe order: reset low, engineering reset, reset high, 10 ms. */
++	vt_gpio(vt.north, VT_PIN_RESET, 0, 3, 7, true, false);
++	delay(1000);
++	nvt_write_addr(NVT_ENG_RST, 0x5a);
++	delay(1000);
++	vt_gpio(vt.north, VT_PIN_RESET, 0, 3, 7, true, true);
++	vt_wait(10);
++	if (!nvt_bring_up()) {
++		goto out;
++	}
++	sweet_touch_driver_record("vayu_nt36672c_spi", true, 4, 0);
++	printf("SWEET NVT: ready, %ux%u -> %dx%d, polling every 4 ms on the IRQ latch\n",
++	    vt.abs_x, vt.abs_y, VT_PANEL_W, VT_PANEL_H);
++
++	unsigned frames = 0, edges = 0, ticks = 0, recoveries = 0;
++	uint64_t errors = 0;
++	while (!vt.dead) {
++		bool edge = vt_rd(vt.south, VT_INTR_ST(VT_PIN_IRQ)) & 1u;
++		bool level = vt_rd(vt.south, VT_IO(VT_PIN_IRQ)) & 1u;
++		bool safety = (++ticks % 25u) == 0; /* every 100 ms */
++		if (edge) {
++			vt_wr(vt.south, VT_INTR_ST(VT_PIN_IRQ), 0);
++			if (edges++ < 4) {
++				printf("SWEET NVT: IRQ edge seen (level %u)\n", level);
++			}
++		}
++		if (edge || level || vt.active || safety) {
++			uint8_t d[POINT_LEN] = {0};
++			nvt_read(0x00, d, sizeof(d));
++			bool logit = vt.log || (frames < 32 && d[0] != 0 && d[0] != 0xff);
++			if (logit) {
++				frames++;
++			}
++			if (vt_frame(d, logit)) {
++				errors++;
++				if (++recoveries > 5) {
++					printf("SWEET NVT: firmware keeps failing; stopping\n");
++					break;
++				}
++				printf("SWEET NVT: watchdog/ESD pattern %02x; reloading firmware\n", d[0]);
++				vt_release_all();
++				if (!nvt_bring_up()) {
++					break;
++				}
++				sweet_touch_driver_record("vayu_nt36672c_spi", true, 4, errors);
++			}
++		}
++		vt_wait(4);
++	}
++	vt_release_all();
++out:
++	printf("SWEET NVT: thread exits\n");
++	(void)thread_terminate(current_thread());
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++void
++vayu_touch_init(void)
++{
++	int enabled = 1;
++	thread_t thread;
++	if (vt.started) {
++		return;
++	}
++	vt.started = true;
++	strlcpy(vt.fw_name, "j20s_novatek_ts_fw02.bin", sizeof(vt.fw_name));
++	(void)PE_parse_boot_argn("vayutouch", &enabled, sizeof(enabled));
++	(void)PE_parse_boot_argn("vayutouchlog", &vt.log, sizeof(vt.log));
++	(void)PE_parse_boot_arg_str("vayutouchfw", vt.fw_name, sizeof(vt.fw_name));
++	if (!enabled) {
++		printf("SWEET NVT: disabled (vayutouch=0)\n");
++		return;
++	}
++	kern_return_t kr = kernel_thread_start(vt_thread, NULL, &thread);
++	if (kr == KERN_SUCCESS) {
++		thread_deallocate(thread);
++	} else {
++		printf("SWEET NVT: kernel_thread_start failed %d\n", kr);
++	}
++}
++#endif /* ARM64_BOARD_CONFIG_SWEET */
