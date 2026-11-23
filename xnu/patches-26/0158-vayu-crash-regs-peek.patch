@@ -1,0 +1,71 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] vayu: crash log dumps x0-x28 and memory at mh-relative offsets
+
+Boot-args (defaults: Preferences, no peeks):
+  sweetcrashregs=NAME|*|-   process whose crashes also print x0..x28
+  sweetcrashpeek=OFF[,OFF]  hex offsets from the main binary's mach header;
+                            16 qwords are printed from each (max 4)
+
+Used to see what swift_getWitnessTable cached for Preferences (vayu).
+---
+diff --git a/osfmk/kern/exception.c b/osfmk/kern/exception.c
+--- a/osfmk/kern/exception.c
++++ b/osfmk/kern/exception.c
+@@ -1023,5 +1023,57 @@ sweet_crash_log(const char *name, int pid, int sig, uint64_t code, uint64_t subc
+ 	printf("%s\n", line);
+ 	sweet_crash_record(name, pid, sig, code, subcode, pc, lr, sp, fp, far, slide, mh, bt, bt_count);
+ 
++	{
++		extern boolean_t PE_parse_boot_argn(const char *arg_string, void *arg_ptr, int max_arg);
++		char want[64] = "Preferences";
++		(void)PE_parse_boot_argn("sweetcrashregs", want, sizeof(want));
++		int same = 1;
++		for (int i = 0; same && (want[i] || name[i]); i++) {
++			same = want[i] == name[i];
++		}
++		if (want[0] != '-' && ((want[0] == '*' && want[1] == 0) || same)) {
++			arm_saved_state64_t *s64 = saved_state64(ss);
++			for (int r = 0; r < 29; r += 4) {
++				printf("CRASH %s x%d %llx %llx %llx %llx\n", name, r,
++				    s64->x[r], r + 1 < 29 ? s64->x[r + 1] : 0,
++				    r + 2 < 29 ? s64->x[r + 2] : 0, r + 3 < 29 ? s64->x[r + 3] : 0);
++			}
++			char peek[128] = "";
++			(void)PE_parse_boot_argn("sweetcrashpeek", peek, sizeof(peek));
++			const char *s = peek;
++			for (int k = 0; k < 4 && *s && mh; k++) {
++				uint64_t off = 0;
++				if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
++					s += 2;
++				}
++				for (; *s && *s != ','; s++) {
++					char c = *s;
++					int d = (c >= '0' && c <= '9') ? c - '0' :
++					    (c >= 'a' && c <= 'f') ? c - 'a' + 10 :
++					    (c >= 'A' && c <= 'F') ? c - 'A' + 10 : -1;
++					if (d < 0) {
++						break;
++					}
++					off = (off << 4) | (uint64_t)d;
++				}
++				while (*s && *s != ',') {
++					s++;
++				}
++				if (*s == ',') {
++					s++;
++				}
++				uint64_t q[16];
++				if (copyin((user_addr_t)(mh + off), q, sizeof(q)) != 0) {
++					printf("CRASH %s peek +0x%llx unreadable\n", name, off);
++					continue;
++				}
++				for (int j = 0; j < 16; j += 4) {
++					printf("CRASH %s +%llx %llx %llx %llx %llx\n", name, off + 8 * j,
++					    q[j], q[j + 1], q[j + 2], q[j + 3]);
++				}
++			}
++		}
++	}
++
+ 	if (sig == 11 || sig == 10) {
+ 		/* Use the region API: XNU 26 replaced the old whole-map read lock. */
