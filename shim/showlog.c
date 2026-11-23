@@ -102,6 +102,65 @@ static void show_xnu_log(void)
 		show("XNULOG", msg, n, 0xff402000);
 		return;
 	}
+#ifdef SHOWLOG_GREP
+	/*
+	 * Grep mode: walk the whole ring and keep only lines that carry one of the
+	 * prefixes below (GPU and display bring-up, panics), newest kept if full.
+	 */
+	{
+		static const char *const pats[] = { "SWEET GPU", "SWEET FB", "panic", "Panic" };
+		static char line[512];
+		unsigned ll = 0;
+		uint64_t span = h.total < XNU_RING_SIZE ? h.total : XNU_RING_SIZE;
+		vcopy(text, msg, n);
+		text_len = n;
+		uint32_t cur = 0xffffffffu;
+		for (uint64_t pos = h.total - span; pos < h.total; pos++) {
+			uint32_t off = pos % XNU_RING_SIZE, b = off / BLOCK;
+			if (b != cur) {
+				if (ufs_scratch_read(UFS_SCRATCH_BLOCKS + 1 + b, 1, blk)) {
+					show("XNULOG read err", msg, n, 0xff400000);
+					return;
+				}
+				cur = b;
+			}
+			char c = blk[off % BLOCK];
+			if (c != '\n' && ll < sizeof(line) - 1) {
+				line[ll++] = c;
+				continue;
+			}
+			if (c != '\n')
+				continue;
+			int hit = 0;
+			for (unsigned k = 0; k < sizeof(pats) / sizeof(pats[0]) && !hit; k++) {
+				const char *q = pats[k];
+				unsigned ql = 0;
+				while (q[ql])
+					ql++;
+				for (unsigned i = 0; i + ql <= ll && !hit; i++) {
+					unsigned j = 0;
+					while (j < ql && line[i + j] == q[j])
+						j++;
+					hit = j == ql;
+				}
+			}
+			if (hit) {
+				if (text_len + ll + 1 > sizeof(text)) {
+					/* full: drop the oldest half, keep the header line */
+					unsigned keep = (text_len - n) / 2;
+					vcopy(text + n, text + text_len - keep, keep);
+					text_len = n + keep;
+				}
+				vcopy(text + text_len, line, ll);
+				text_len += ll;
+				text[text_len++] = '\n';
+			}
+			ll = 0;
+		}
+		show("XNULOG grep", text, text_len, 0xff000000);
+		return;
+	}
+#endif
 	/* The last SHOWLOG_XNU_TAIL bytes, whole blocks, oldest first. */
 	uint64_t want_bytes = h.total < SHOWLOG_XNU_TAIL ? h.total : SHOWLOG_XNU_TAIL;
 	uint64_t from = h.total - want_bytes;
