@@ -1,0 +1,25 @@
+Poco X3 Pro (vayu): the bootstrap console's splash framebuffer.
+
+vayu's ABL leaves its DSC video-mode panel (CSOT, 1080x2400, 4320-byte rows)
+scanning out cont_splash_region @ 0x9c000000 (live FDT and the shim probe of
+2026-11-23: SSPP VIG0 src 0x9c000000 stride 0x10e0). Same 32MB block as RMX1931.
+
+diff --git a/pexpert/pexpert/arm64/SWEET.h b/pexpert/pexpert/arm64/SWEET.h
+--- a/pexpert/pexpert/arm64/SWEET.h
++++ b/pexpert/pexpert/arm64/SWEET.h
+@@ -52,12 +52,12 @@
+ #define SWEET_IPI_SGI             1       // SGI used for cross-CPU signals
+ 
+ /*
+- * Realme X2 Pro (RMX1931 / samurai): splash framebuffer ABL scans out
+- * (cont_splash_region @ 0x9d000000, Samsung SOFEF03F-M 1080x2400 cmd-mode
++ * Poco X3 Pro (vayu): splash framebuffer ABL scans out
++ * (cont_splash_region @ 0x9c000000, CSOT 1080x2400 DSC video-mode
+  * panel, 4320-byte rows). SWEET_EARLY_FB_BLOCK_PA is the 32MB L2 block
+  * [0x9c000000, 0x9e000000) mapped Device-GRE holding it.
+  */
+-#define SWEET_EARLY_FB_PA         0x9d000000
++#define SWEET_EARLY_FB_PA         0x9c000000
+ #define SWEET_EARLY_FB_BLOCK_PA   0x9c000000
+ #define SWEET_EARLY_FB_WIDTH      1080
+ #define SWEET_EARLY_FB_HEIGHT     2400
