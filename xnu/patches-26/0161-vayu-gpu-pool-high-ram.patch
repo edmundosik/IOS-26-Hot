@@ -1,0 +1,63 @@
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index a7e515e..fc3e884 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -1076,10 +1076,37 @@ sweet_gpu_submit_user(uint64_t ib_iova, uint32_t dwords, uint32_t timeout_ms, ui
+  */
+ #define GPOOL_UNIT      0x4000ULL
+ #define GPOOL_FREE_MAX  4096
+-static const struct { uint64_t pa, size; } gpool_ranges[] = {
++static struct { uint64_t pa, size; } gpool_ranges[] = {
+ 	{ 0xc4000000ULL, 0x1c000000ULL },       /* 448 MB (the first 64 MB left to ABL's ramdisk) */
+ 	{ 0xe1000000ULL, 0x1f000000ULL },       /* 496 MB */
++	{ 0, 0 },                               /* vayu (sweet 0161): the RAM above XNU's, see gpool_high_range() */
+ };
++/*
++ * vayu has 6 GB: memory 0x1_00000000-0x2_00000000 holds no carve-out. With an ADT sweet-mem-size of 0xbcc00000
++ * XNU's RAM ends at 0x1_bcc00000 and the 1 GB up to 0x1_fcc00000 (the panic region and console mirror sit above)
++ * becomes GPU pool: 944 MB was not enough for iOS 26's compositor and icons. Only taken when XNU's RAM really
++ * ends below it, so an old ADT keeps the old pool. sweetgpuhigh=0 turns it off.
++ */
++#define GPOOL_HIGH_PA   0x1bcc00000ULL
++#define GPOOL_HIGH_END  0x1fcc00000ULL
++extern unsigned long gPhysBase, gPhysSize;
++static void
++gpool_high_range(void)
++{
++	static bool done;
++	if (done) {
++		return;
++	}
++	done = true;
++	uint32_t on = 1;
++	PE_parse_boot_argn("sweetgpuhigh", &on, sizeof(on));
++	if (on && gPhysBase + gPhysSize <= GPOOL_HIGH_PA) {
++		gpool_ranges[2].pa = GPOOL_HIGH_PA;
++		gpool_ranges[2].size = GPOOL_HIGH_END - GPOOL_HIGH_PA;
++	}
++	a6_log("pool: XNU RAM ends 0x%llx, high range %llu MB\n", (uint64_t)(gPhysBase + gPhysSize),
++	    gpool_ranges[2].size >> 20);
++}
+ static struct { uint64_t pa, size; } gpool_free[GPOOL_FREE_MAX];       /* sorted by address, merged */
+ static uint32_t gpool_nfree;
+ static uint64_t gpool_used, gpool_peak, gpool_failures;
+@@ -1090,6 +1117,7 @@ uint64_t
+ sweet_gpu_pool_avail(void)
+ {
+ 	uint64_t total = 0;
++	gpool_high_range();
+ 	for (unsigned i = 0; i < sizeof(gpool_ranges) / sizeof(gpool_ranges[0]); i++) {
+ 		total += gpool_ranges[i].size;
+ 	}
+@@ -1175,7 +1203,11 @@ sweet_gpu_pool_try_alloc(uint64_t bytes, uint64_t *pa)
+ 	int rc = -1;
+ 	lck_mtx_lock(&sweet_gpool_lock);
+ 	if (!gpool_ready) {
++		gpool_high_range();
+ 		for (unsigned i = 0; i < sizeof(gpool_ranges) / sizeof(gpool_ranges[0]); i++) {
++			if (gpool_ranges[i].size == 0) {
++				continue;
++			}
+ 			gpool_free[gpool_nfree].pa = gpool_ranges[i].pa;
+ 			gpool_free[gpool_nfree].size = gpool_ranges[i].size;
+ 			gpool_nfree++;

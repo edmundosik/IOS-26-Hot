@@ -22,6 +22,8 @@ MEM_SIZE = 0x3d000000
 # big, 0xc0000000, so XNU takes 0x1_00000000 up (same size as on the Redmi).
 HIGH_PHYS_BASE = 0x100000000
 HIGH_MEM_SIZE = 0xfcc00000
+# --vayu --highmem: XNU stops at 0x1_bcc00000 and the GB above becomes GPU pool (xnu patch 0161)
+VAYU_HIGH_MEM_SIZE = 0xbcc00000
 # Actual physical LPDDR4X address range for XNU's gDramBase/gDramSize
 # (is_dram_addr() in pmap_map_bd_with_options / wimg_to_pte and pmap_first_pnum).
 # Must cover all physical RAM regions mapped as Write-Combine (0x9d000000 fbcon,
@@ -144,7 +146,7 @@ def node(name, props=(), children=()):
 
 def build(seed=None, qemu=False, highmem=False, d22ap=False, canvas_height=2499, baseband=False, vayu=False):
     """qemu=True: same tree, but with QEMU virt's GIC addresses and CNTFRQ (tools/qemu-sweet.py)."""
-    phys_base, mem_size = (HIGH_PHYS_BASE, HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
+    phys_base, mem_size = (HIGH_PHYS_BASE, VAYU_HIGH_MEM_SIZE if vayu else HIGH_MEM_SIZE) if highmem else (PHYS_BASE, MEM_SIZE)
     dram_base, dram_size = (QEMU_DRAM_BASE, QEMU_DRAM_SIZE) if qemu else (DRAM_BASE, DRAM_SIZE)
     gicd, gicr, timebase = (QEMU_GICD, QEMU_GICR, QEMU_TIMEBASE) if qemu else (GICD, GICR, TIMEBASE)
     # XNU 12377 requires four SHA-512 blocks from PE_get_random_seed;
