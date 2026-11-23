@@ -117,7 +117,12 @@ jobs:
       - name: Build Mesa Turnip (libvulkan_freedreno.dylib) for iOS 16 arm64
         if: steps.cache-turnip.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 https://github.com/UniXNU/UniXNU.git reference-repos/UniXNU
+          # Pinned: later UniXNU Turnip patches use NativeAdreno ABI additions
+          # (priority rings, notes, owned-coherent BOs) that phone/turnip/NativeAdrenoABI.h
+          # and the SWEET kernel do not have.
+          git init -q reference-repos/UniXNU
+          git -C reference-repos/UniXNU fetch -q --depth 1 https://github.com/UniXNU/UniXNU.git c7353ea7a0a8867ea3f09ea572d188eb8e27a871
+          git -C reference-repos/UniXNU checkout -q FETCH_HEAD
           mkdir -p work/turnip
           git init -q work/turnip/mesa
           git -C work/turnip/mesa fetch --depth 1 https://gitlab.freedesktop.org/mesa/mesa.git 85fda3b36405bcaea8bffc64aa4f2651dc90770d || \
