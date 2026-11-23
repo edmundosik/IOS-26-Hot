@@ -1391,6 +1391,27 @@ static void scheduled(void *context);
    if(pixels>=2000000)gFullScreenPasses++;
   }
  }
+ // SweetMetal2 (vayu): HOT_MTL2_LOG_PASSES=1 prints each distinct pass shape once to stderr (at most 48), to see
+ // which attachments a frame's passes carry (log39: full passes clear an RGBA16F attachment besides the BGRA8 one).
+ {
+  static const bool logPasses=getenv("HOT_MTL2_LOG_PASSES")!=nullptr;
+  if(logPasses) {
+   char line[400];int n=0;
+   id<MTLTexture> t0=d.colorAttachments[0].texture?:d.depthAttachment.texture;
+   const unsigned long w=t0?t0.width:d.renderTargetWidth,h=t0?t0.height:d.renderTargetHeight,px=w*h;
+   n+=snprintf(line+n,sizeof(line)-n,"m2v pass %c",px>=2000000?'F':px>=200000?'B':px>=20000?'M':'T');
+   for(unsigned i=0;i<8 && n<(int)sizeof(line)-40;i++) {
+    MTLRenderPassColorAttachmentDescriptor *c=d.colorAttachments[i];
+    if(c.texture)n+=snprintf(line+n,sizeof(line)-n," c%u f%lu l%lu s%lu m%lu u%lx%s",i,(unsigned long)c.texture.pixelFormat,(unsigned long)c.loadAction,(unsigned long)c.storeAction,(unsigned long)c.texture.storageMode,(unsigned long)c.texture.usage,c.resolveTexture?" r":"");
+   }
+   if(d.depthAttachment.texture && n<(int)sizeof(line)-40)n+=snprintf(line+n,sizeof(line)-n," d f%lu l%lu s%lu",(unsigned long)d.depthAttachment.texture.pixelFormat,(unsigned long)d.depthAttachment.loadAction,(unsigned long)d.depthAttachment.storeAction);
+   if(d.stencilAttachment.texture && n<(int)sizeof(line)-40)n+=snprintf(line+n,sizeof(line)-n," st f%lu",(unsigned long)d.stencilAttachment.texture.pixelFormat);
+   static std::mutex lock;static std::vector<std::string> seen;
+   std::lock_guard<std::mutex> g(lock);
+   std::string key(line);
+   if(seen.size()<48 && std::find(seen.begin(),seen.end(),key)==seen.end()){seen.push_back(key);fprintf(stderr,"%s %lux%lu\n",line,w,h);}
+  }
+ }
  auto attachment=[&](MTLRenderPassAttachmentDescriptor *a,NmbPassAttachment &out)->bool {
   if(!a.texture)return true;
   if(![(id)a.texture isKindOfClass:[NBTexture class]])return false;
