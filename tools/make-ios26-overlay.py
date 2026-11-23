@@ -547,6 +547,8 @@ def main():
                     help='register org.iosonpixel.cellulard LaunchDaemon (CoreTelephony XPC + QRTR QMI)')
     ap.add_argument('--enable-adsp', action='store_true',
                     help='register org.iosonpixel.adspd LaunchDaemon (SM8150 LPASS ADSP + MAX98927 audio)')
+    ap.add_argument('--allow-missing-daemons', action='store_true',
+                    help='boards without the RMX1931 dropbear/wland jobs (vayu): warn instead of refusing')
     ap.add_argument('--wland-wrapper', help='optional wrapper path for org.iosonpixel.wland ProgramArguments[0]')
     ap.add_argument('--selftest-bin', help='optional compiled arm64 self-test Mach-O for guarded test boots')
     ap.add_argument('--selftest-script', help='optional bring-up self-test shell script for guarded test boots')
@@ -787,7 +789,9 @@ def main():
 
     after_count = len(jobs)
     missing_keep = [k for k in KEEP_DAEMON_KEYS if k not in jobs]
-    if missing_keep:
+    if missing_keep and args.allow_missing_daemons:
+        print(f'warning: LaunchDaemons not in this root, skipped: {missing_keep}', file=sys.stderr)
+    elif missing_keep:
         raise RuntimeError(f'refusing to build overlay: required LaunchDaemons missing: {missing_keep}')
 
     wp_assets = None
