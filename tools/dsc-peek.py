@@ -2,12 +2,16 @@
 """Light-weight dyld shared cache symbolizer (stdlib only, seeks, little RAM).
 
   dsc-peek.py CACHE_DIR SLIDE ADDR[:N] [ADDR[:N] ...] [--macho FILE:ADDR[:N] ...]
+              [--list DYLIB:SUBSTR ...] [--dump DYLIB:SYMBOL:N ...]
 
 For each slid ADDR: subcache file, image (dylib path), nearest symbol
 (.symbols local symbols plus the image's own LC_SYMTAB) and, with :N, the N
 instruction words before and after it as hex (disassemble elsewhere, e.g.
 llvm-mc). --macho does the same for a standalone Mach-O (unslid ADDR),
 resolving __stubs targets to their imported symbol names.
+--list prints the symbols of DYLIB (base name) whose name contains SUBSTR;
+--dump prints N words from the start of SYMBOL (exact name, SLIDE ignored)
+with every bl target named.
 For machines where `ipsw dyld` runs out of memory (WSL).
 """
 import bisect
@@ -202,13 +206,52 @@ def macho_peek(spec):
             print(f'  bl at 0x{pc:x} -> 0x{t:x} {stubs.get(t, "")}')
 
 
+def image_mh(c, name):
+    for a, p in c.images:
+        if os.path.basename(p) == name:
+            return a
+    sys.exit(f'{name}: not in the cache')
+
+
+def list_syms(c, spec):
+    lib, sub = spec.split(':', 1)
+    mh = image_mh(c, lib)
+    hits = [(v, n) for v, n in c.symbols(mh) if sub in n]
+    print(f'== {lib} symbols containing {sub!r}: {len(hits)}')
+    for v, n in hits[:60]:
+        print(f'  0x{v:x} {n}')
+
+
+def dump_sym(c, spec):
+    lib, name, n = spec.rsplit(':', 2)
+    mh = image_mh(c, lib)
+    syms = c.symbols(mh)
+    hit = [v for v, s in syms if s == name]
+    if not hit:
+        print(f'== {name}: not found in {lib}')
+        return
+    a, n = hit[0], int(n)
+    b = c.read(a, 4 * n) or b''
+    print(f'== {lib}`{name} at 0x{a:x}')
+    for i in range(0, len(b), 32):
+        print('  ' + words(b[i:i + 32], a + i))
+    for i in range(0, len(b), 4):
+        w = u32(b, i)
+        if w >> 26 in (0x25, 0x5):	# bl / b
+            imm = w & 0x3ffffff
+            t = a + i + ((imm - (1 << 26) if imm & (1 << 25) else imm) << 2)
+            print(f'  {"bl" if w >> 31 else "b "} at 0x{a + i:x} -> 0x{t:x} {c.sym(t)}')
+
+
 def main():
     args = sys.argv[1:]
-    machos = []
-    while '--macho' in args:
-        i = args.index('--macho')
-        machos.append(args[i + 1])
-        del args[i:i + 2]
+    opts = {'--macho': [], '--list': [], '--dump': []}
+    for k in opts:
+        while k in args:
+            i = args.index(k)
+            opts[k].append(args[i + 1])
+            del args[i:i + 2]
+    machos = opts['--macho']
     if len(args) < 2:
         sys.exit(__doc__)
     c = Cache(args[0])
@@ -224,6 +267,10 @@ def main():
                 print('  ' + words(b, un - 4 * n))
     for m in machos:
         macho_peek(m)
+    for m in opts['--list']:
+        list_syms(c, m)
+    for m in opts['--dump']:
+        dump_sym(c, m)
 
 
 if __name__ == '__main__':
