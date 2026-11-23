@@ -108,7 +108,7 @@ static void show_xnu_log(void)
 	 * prefixes below (GPU and display bring-up, panics), newest kept if full.
 	 */
 	{
-		static const char *const pats[] = { "SWEET GPU", "SWEET FB", "panic", "Panic" };
+		static const char pats[][16] = { "SWEET GPU", "SWEET FB", "SWEET MTL", "SWEET KEYS", "panic", "Panic", "memorystatus", "crash", "exited" };
 		static char line[512];
 		unsigned ll = 0;
 		uint64_t span = h.total < XNU_RING_SIZE ? h.total : XNU_RING_SIZE;
@@ -144,6 +144,23 @@ static void show_xnu_log(void)
 					hit = j == ql;
 				}
 			}
+#ifdef SHOWLOG_GREP_QUIET
+			/* skip the periodic stats lines */
+			static const char skip[][16] = { "5s:", "present: ", "pool: peak", "00 swaps", "SWEET SURF", "SWEET BL", "SWEET AKS" };
+			for (unsigned k = 0; k < sizeof(skip) / sizeof(skip[0]) && hit; k++) {
+				const char *q = skip[k];
+				unsigned ql = 0;
+				while (q[ql])
+					ql++;
+				for (unsigned i = 0; i + ql <= ll && hit; i++) {
+					unsigned j = 0;
+					while (j < ql && line[i + j] == q[j])
+						j++;
+					if (j == ql)
+						hit = 0;
+				}
+			}
+#endif
 			if (hit) {
 				if (text_len + ll + 1 > sizeof(text)) {
 					/* full: drop the oldest half, keep the header line */
