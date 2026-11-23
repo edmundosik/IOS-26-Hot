@@ -78,6 +78,9 @@ m = bm['BuildIdentities'][0]['Manifest']
 paths = [m[k]['Info']['Path'] for k in ('OS', 'Cryptex1,SystemOS', 'Cryptex1,AppOS')]
 need = sum(entries[p][3] for p in paths if not os.path.exists(os.path.join(outdir, p)))
 free = shutil.disk_usage(outdir).free
+# WSL's virtual disk reports ~1 TB; the real limit is free space on C:.
+if os.path.isdir('/mnt/c'):
+    free = min(free, shutil.disk_usage('/mnt/c').free)
 print(f'DMGs to download: {need / 2**30:.1f} GiB, free: {free / 2**30:.1f} GiB', file=sys.stderr)
 # DMGs + the root image (about the size of the uncompressed files) at once.
 if free < need * 2.6:
