@@ -1,0 +1,120 @@
+diff --git a/src/freedreno/vulkan/tu_knl_darwin.cc b/src/freedreno/vulkan/tu_knl_darwin.cc
+index 3c98b4b..be507fb 100644
+--- a/src/freedreno/vulkan/tu_knl_darwin.cc
++++ b/src/freedreno/vulkan/tu_knl_darwin.cc
+@@ -70,9 +70,14 @@ struct darwin_retired_bo {
+  * allocation of its class: one BoAlloc + BoMap (the SMMU table update, about a millisecond) and one BoFree + unmap saved per reuse.
+  * Classes are the size rounded up to a quarter of its power of two (4 KiB steps up to 16 KiB). Replayable BOs (client addresses) and
+  * host imports never enter it. */
+-enum { DARWIN_CACHE_ENTRIES = 512, DARWIN_CACHE_MAX_BYTES = 256 << 20 };
++enum { DARWIN_CACHE_ENTRIES = 512, DARWIN_CACHE_MAX_BYTES = 128 << 20 };
++/* vayu: every Metal client draws from one 944 MB kernel pool, and backboardd's cache alone could hold 256 MB of it while
++ * SpringBoard and apps were refused. A trim thread gives back entries left idle for DARWIN_CACHE_IDLE_NS, and the whole cache
++ * when the kernel reports pressure on the pool (NativeAdrenoParamsPoolPressure in Query's flags, sweet 0159). */
++enum : uint64_t { DARWIN_CACHE_IDLE_NS = 1000000000ull, DARWIN_TRIM_PERIOD_NS = 250000000ull };
++static constexpr uint32_t darwin_params_pool_pressure = 2;
+ struct darwin_cached_bo {
+-   uint64_t handle, iova, size, stamp;
++   uint64_t handle, iova, size, stamp, cached_ns;
+    void *mapping;
+    uint32_t token;
+    bool read_only;
+@@ -105,6 +110,9 @@ struct darwin_retire_state {
+    unsigned cache_count;
+    uint64_t cache_bytes, cache_stamp;
+    struct darwin_bo_cache_stats cache_stats;
++   pthread_t trim_thread;
++   pthread_cond_t trim_cond;
++   bool trim_running, trim_stop;
+    struct darwin_va va;
+ };
+ static struct darwin_retire_state *darwin_stats_state;   /* for tu_darwin_bo_cache_stats */
+@@ -560,7 +568,8 @@ darwin_cache_put(struct tu_device *dev, struct darwin_retire_state *retire, cons
+       if (darwin_cache_evict(dev, retire, oldest) != VK_SUCCESS)
+          return false;
+    }
+-   retire->cache[retire->cache_count++] = {bo->handle, bo->iova, bo->size, ++retire->cache_stamp, bo->mapping, bo->token, bo->read_only};
++   retire->cache[retire->cache_count++] = {bo->handle, bo->iova, bo->size, ++retire->cache_stamp, os_time_get_nano(), bo->mapping,
++                                           bo->token, bo->read_only};
+    retire->cache_bytes += bo->size;
+    if (retire->cache_bytes > retire->cache_stats.bytes_peak)
+       retire->cache_stats.bytes_peak = retire->cache_bytes;
+@@ -642,6 +651,47 @@ darwin_reap_locked(struct tu_device *dev, struct darwin_retire_state *retire)
+    return VK_SUCCESS;
+ }
+ 
++/* Called under retire->lock: the whole cache when the kernel pool is under pressure, else the entries idle too long. */
++static void
++darwin_cache_trim(struct tu_device *dev, struct darwin_retire_state *retire)
++{
++   if (!retire->cache_count)
++      return;
++   NativeAdrenoAbiParams params = {};
++   if (dw_call(NativeAdrenoMethodQuery, NULL, 0, &params, sizeof(params)) == KERN_SUCCESS &&
++       (params.flags & darwin_params_pool_pressure)) {
++      darwin_cache_flush(dev, retire);
++      return;
++   }
++   const uint64_t now = os_time_get_nano();
++   for (unsigned i = retire->cache_count; i-- > 0;)
++      if (now - retire->cache[i].cached_ns >= DARWIN_CACHE_IDLE_NS)
++         darwin_cache_evict(dev, retire, i);
++}
++
++/* Runs even while the client draws nothing, so an idle process does not keep pool memory another one needs. */
++static void *
++darwin_trim_main(void *arg)
++{
++   struct tu_device *dev = (struct tu_device *)arg;
++   struct darwin_retire_state *retire = (struct darwin_retire_state *)dev->darwin_retire;
++   pthread_mutex_lock(&retire->lock);
++   while (!retire->trim_stop) {
++      /* Darwin condition variables wait on the realtime clock. */
++      struct timespec ts;
++      clock_gettime(CLOCK_REALTIME, &ts);
++      uint64_t abs = (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec + DARWIN_TRIM_PERIOD_NS;
++      ts.tv_sec = abs / 1000000000ull;
++      ts.tv_nsec = abs % 1000000000ull;
++      pthread_cond_timedwait(&retire->trim_cond, &retire->lock, &ts);
++      if (retire->trim_stop || retire->failure != VK_SUCCESS)
++         continue;
++      darwin_cache_trim(dev, retire);
++   }
++   pthread_mutex_unlock(&retire->lock);
++   return NULL;
++}
++
+ static VkResult
+ darwin_collect_retired(struct tu_device *dev)
+ {
+@@ -1311,15 +1361,29 @@ darwin_device_init(struct tu_device *dev)
+    }
+    dev->darwin_retire = retire;
+    darwin_stats_state = retire;
++   if (!pthread_cond_init(&retire->trim_cond, NULL)) {
++      retire->trim_running = !pthread_create(&retire->trim_thread, NULL, darwin_trim_main, dev);
++      if (!retire->trim_running)
++         pthread_cond_destroy(&retire->trim_cond);
++   }
+    return VK_SUCCESS;
+ }
+ 
+ static void
+ darwin_device_finish(struct tu_device *dev)
+ {
++   struct darwin_retire_state *retire = (struct darwin_retire_state *)dev->darwin_retire;
++   if (retire && retire->trim_running) {
++      pthread_mutex_lock(&retire->lock);
++      retire->trim_stop = true;
++      pthread_cond_signal(&retire->trim_cond);
++      pthread_mutex_unlock(&retire->lock);
++      pthread_join(retire->trim_thread, NULL);
++      pthread_cond_destroy(&retire->trim_cond);
++      retire->trim_running = false;
++   }
+    /* Closing the connection makes the kernel drain the GPU and free every object this client created. */
+    dw_close_connection();
+-   struct darwin_retire_state *retire = (struct darwin_retire_state *)dev->darwin_retire;
+    if (retire) {
+       /* Some CreateDevice failure paths already destroyed the VMA heap/mutex.
+        * Never return ranges here: they are either gone or about to be destroyed. */

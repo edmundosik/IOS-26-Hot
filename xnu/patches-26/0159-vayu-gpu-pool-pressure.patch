@@ -1,0 +1,93 @@
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index e4c6c6d..0906f9d 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -1094,6 +1094,33 @@ sweet_gpu_pool_avail(void)
+ 	}
+ 	return total - gpool_used;
+ }
++
++/*
++ * Pressure on the pool, for NativeAdrenoParamsPoolPressure: less than sweetgpupressure MB (default 256) free, or an
++ * allocation refused or failed in the last two seconds. Each Turnip client then empties its BO cache, so memory one
++ * process cached is there for another (backboardd alone held 700 MB of the 944 while SpringBoard was refused).
++ */
++static uint64_t gpool_pressure_until;
++void sweet_gpu_pool_note_pressure(void);
++void
++sweet_gpu_pool_note_pressure(void)
++{
++	uint64_t span = 0;
++	nanoseconds_to_absolutetime(2000000000ULL, &span);
++	gpool_pressure_until = mach_absolute_time() + span;
++}
++bool sweet_gpu_pool_pressure(void);
++bool
++sweet_gpu_pool_pressure(void)
++{
++	static uint64_t low_bytes;
++	if (low_bytes == 0) {
++		uint32_t mb = 256;
++		PE_parse_boot_argn("sweetgpupressure", &mb, sizeof(mb));
++		low_bytes = ((uint64_t)mb << 20) | 1;
++	}
++	return sweet_gpu_pool_avail() < low_bytes || mach_absolute_time() < gpool_pressure_until;
++}
+ static bool gpool_ready;
+ static LCK_MTX_DECLARE(sweet_gpool_lock, &sweet_gpu_grp);
+ 
+@@ -1149,6 +1176,7 @@ sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa)
+ 	gpool_failures++;
+ 	uint64_t used = gpool_used;
+ 	lck_mtx_unlock(&sweet_gpool_lock);
++	sweet_gpu_pool_note_pressure();
+ 	a6_log("pool: no %llu bytes free (%llu MB in use)\n", size, used >> 20);
+ 	return -1;
+ }
+diff --git a/iokit/Kernel/arm/SweetAccelerator.cpp b/iokit/Kernel/arm/SweetAccelerator.cpp
+index 10d7cf2..699261a 100644
+--- a/iokit/Kernel/arm/SweetAccelerator.cpp
++++ b/iokit/Kernel/arm/SweetAccelerator.cpp
+@@ -74,6 +74,8 @@ uint64_t sweet_gpu_timestamp(void);
+ int sweet_gpu_pool_try_alloc(uint64_t bytes, uint64_t *pa);
+ int sweet_gpu_pool_alloc(uint64_t bytes, uint64_t *pa);
+ uint64_t sweet_gpu_pool_avail(void);
++void sweet_gpu_pool_note_pressure(void);
++bool sweet_gpu_pool_pressure(void);
+ void sweet_gpu_pool_free(uint64_t pa, uint64_t bytes);
+ }
+ 
+@@ -263,6 +265,9 @@ SweetAcceleratorUserClient::v2PoolAllowed(uint64_t len)
+ 	} else if (sweet_gpu_pool_avail() < len + reserve_bytes) {
+ 		why = "the compositor's reserve";
+ 	}
++	if (why != NULL) {
++		sweet_gpu_pool_note_pressure();
++	}
+ 	if (why != NULL && !fCapLogged) {
+ 		fCapLogged = true;
+ 		IOLog("SWEET MTL: v2 %s: %llu MB buffer refused (holds %llu MB, %llu MB of the pool free): %s\n", fName,
+@@ -939,6 +944,9 @@ SweetAcceleratorUserClient::v2Method(uint32_t method, const void *in, uint32_t i
+ 		rp->input_bits = 39;
+ 		rp->output_bits = 36;
+ 		rp->flags = NativeAdrenoParamsHostImport;
++		if (sweet_gpu_pool_pressure()) {
++			rp->flags |= NativeAdrenoParamsPoolPressure;
++		}
+ 		rp->max_bo_bytes = 1ULL << NativeAdrenoAbiMaxBoBytesShift;
+ 		return kIOReturnSuccess;
+ 	}
+diff --git a/iokit/Kernel/arm/SweetGPUABI.h b/iokit/Kernel/arm/SweetGPUABI.h
+index 0c6e483..b6e5023 100644
+--- a/iokit/Kernel/arm/SweetGPUABI.h
++++ b/iokit/Kernel/arm/SweetGPUABI.h
+@@ -43,7 +43,8 @@ struct NativeAdrenoAbiParams {
+     uint64_t max_bo_bytes;
+ };
+ enum {
+-    NativeAdrenoParamsHostImport = 1  /* BoImport pins the caller's own pages (an IOSurface's) as a BO */
++    NativeAdrenoParamsHostImport = 1, /* BoImport pins the caller's own pages (an IOSurface's) as a BO */
++    NativeAdrenoParamsPoolPressure = 2 /* the shared GPU pool runs short: clients give their cached BOs back */
+ };
+ struct NativeAdrenoAbiBoAlloc {
+     uint64_t bytes;               /* 4KiB multiple, <= max_bo_bytes */
