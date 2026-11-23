@@ -108,7 +108,13 @@ static void show_xnu_log(void)
 	 * prefixes below (GPU and display bring-up, panics), newest kept if full.
 	 */
 	{
+#ifdef SHOWLOG_GREP_APPS
+		/* userland: crashes, kills, app launches, keys, GPU faults (no stats) */
+		static const char pats[][16] = { "CRASH", "exec ", "panic", "Panic", "memorystatus", "jetsam",
+						 "SWEET KEYS", "fault", "hang", "timeout", "watchdog", "killed", "SMP ---" };
+#else
 		static const char pats[][16] = { "SWEET GPU", "SWEET FB", "SWEET MTL", "SWEET KEYS", "panic", "Panic", "memorystatus", "crash", "exited" };
+#endif
 		static char line[512];
 		unsigned ll = 0;
 		uint64_t span = h.total < XNU_RING_SIZE ? h.total : XNU_RING_SIZE;
@@ -146,7 +152,14 @@ static void show_xnu_log(void)
 			}
 #ifdef SHOWLOG_GREP_QUIET
 			/* skip the periodic stats lines */
+#ifdef SHOWLOG_GREP_APPS
+			/* daemons launchd restarts every 10 s, and the crash bt/reason lines */
+			static const char skip[][16] = { "5s:", "present: ", "pool: peak", "00 swaps", "SWEET SURF", "SWEET BL",
+							 "SWEET AKS", "exec xpcproxy", "exec fairplayd", "exec bluetoothd",
+							 "exec com.apple.d", "exec UARP", " reason ns" };
+#else
 			static const char skip[][16] = { "5s:", "present: ", "pool: peak", "00 swaps", "SWEET SURF", "SWEET BL", "SWEET AKS" };
+#endif
 			for (unsigned k = 0; k < sizeof(skip) / sizeof(skip[0]) && hit; k++) {
 				const char *q = skip[k];
 				unsigned ql = 0;
