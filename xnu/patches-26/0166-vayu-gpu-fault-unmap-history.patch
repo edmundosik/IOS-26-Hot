@@ -1,0 +1,109 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] vayu: say whether a GPU fault address was unmapped while in use (0166)
+
+log40: switching to dark mode faulted the GPU (smmu fsr 2, far 0x1206460500,
+128 KB below the current IB1), SpringBoard then crashed and the screen flashed
+black. Earlier logs (25, 30) had the same kind of fault. Keep the last 512
+window unmaps (with the fence counters at the time) and, on a fault, print the
+ones that covered the address; log each v2 client's GPU window so the address
+names the process.
+---
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index fc3e884..f7b67f2 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -452,6 +452,8 @@ gpu_hung_locked(uint32_t hang_ms)
+ 	return ns > hang_ms * 1000000ULL;
+ }
+ 
++static void unmap_report_locked(uint64_t far);
++
+ /* Soft reset + CP re-init; everything queued is lost, its fences complete at once (waiters return). */
+ static void
+ gpu_recover_locked(const char *why)
+@@ -465,6 +467,9 @@ gpu_recover_locked(const char *why)
+ 	    a6_rd(A6_GREG(0x806)), gpu.wptr, a6_rd(A6_GREG(0x929)), a6_rd(A6_GREG(0x928)), a6_rd(A6_GREG(0x92a)),
+ 	    a6_rd(A6_GREG(0x92c)), a6_rd(A6_GREG(0x92b)), a6_rd(A6_GREG(0x92d)), a6_rd(A6_GREG(0x210)),
+ 	    a6_rd(A6_GREG(0x908)));
++	if (fsr != 0) {
++		unmap_report_locked(far);
++	}
+ 	lost[recoveries % LOST_RING].lo = done;
+ 	lost[recoveries % LOST_RING].hi = gpu.fence;
+ 	recoveries++;
+@@ -1396,6 +1401,47 @@ sweet_gpu_map_pa_range(uint64_t iova, uint64_t pa, uint64_t bytes)
+ 	return rc;
+ }
+ 
++/*
++ * vayu (sweet 0166): the last window unmaps, so a GPU fault can say whether its address was unmapped while
++ * work that used it was still queued (use after free) or was never mapped. Under sweet_gpu_lock.
++ */
++#define UNMAP_RING 512
++static struct { uint64_t iova, len, abs; uint32_t fence, done; } unmap_ring[UNMAP_RING];
++static uint32_t unmap_next;
++
++static void
++unmap_note_locked(uint64_t iova, uint64_t len)
++{
++	unmap_ring[unmap_next % UNMAP_RING].iova = iova;
++	unmap_ring[unmap_next % UNMAP_RING].len = len;
++	unmap_ring[unmap_next % UNMAP_RING].abs = mach_absolute_time();
++	unmap_ring[unmap_next % UNMAP_RING].fence = gpu.fence;
++	unmap_ring[unmap_next % UNMAP_RING].done = a6_fence_read(&gpu);
++	unmap_next++;
++}
++
++static void
++unmap_report_locked(uint64_t far)
++{
++	uint64_t now = mach_absolute_time(), ns;
++	unsigned found = 0;
++	for (uint32_t k = 0; k < UNMAP_RING && k < unmap_next; k++) {
++		uint32_t i = (unmap_next - 1 - k) % UNMAP_RING;
++		if (far >= unmap_ring[i].iova && far < unmap_ring[i].iova + unmap_ring[i].len) {
++			absolutetime_to_nanoseconds(now - unmap_ring[i].abs, &ns);
++			a6_log("fault far %llx: in %llx+%llx unmapped %llu ms ago (fence then %u, done %u)\n", far,
++			    unmap_ring[i].iova, unmap_ring[i].len, ns / 1000000ULL, unmap_ring[i].fence, unmap_ring[i].done);
++			if (++found == 3) {
++				break;
++			}
++		}
++	}
++	if (!found) {
++		a6_log("fault far %llx: not among the last %u unmaps (window %llu)\n", far,
++		    unmap_next < UNMAP_RING ? unmap_next : UNMAP_RING, (far - WIN_BASE) / WIN_SIZE);
++	}
++}
++
+ void
+ sweet_gpu_unmap_at(uint64_t iova, uint64_t len)
+ {
+@@ -1404,6 +1450,7 @@ sweet_gpu_unmap_at(uint64_t iova, uint64_t len)
+ 	}
+ 	lck_mtx_lock(&sweet_gpu_lock);
+ 	if (gpu_ready) {
++		unmap_note_locked(iova, len);
+ 		a6_unmap(&gpu, iova, len);
+ 		a6_tlb_flush(&gpu);
+ 	}
+@@ -1422,6 +1469,7 @@ sweet_gpu_unmap_at_batch(const uint64_t *iovas, const uint64_t *lens, unsigned c
+ 		bool any = false;
+ 		for (unsigned i = 0; i < count; i++) {
+ 			if (iovas[i] >= WIN_BASE && lens[i] != 0) {
++				unmap_note_locked(iovas[i], lens[i]);
+ 				a6_unmap(&gpu, iovas[i], lens[i]);
+ 				any = true;
+ 			}
+diff --git a/iokit/Kernel/arm/SweetAccelerator.cpp b/iokit/Kernel/arm/SweetAccelerator.cpp
+index 0c29390..3991387 100644
+--- a/iokit/Kernel/arm/SweetAccelerator.cpp
++++ b/iokit/Kernel/arm/SweetAccelerator.cpp
+@@ -228,6 +228,7 @@ SweetAcceleratorUserClient::initWithTask(task_t owningTask, void *securityID, UI
+ 			IOLog("SWEET MTL: v2 client: no GPU window\n");
+ 			return false;
+ 		}
++		IOLog("SWEET MTL: v2 %s[%d] GPU window 0x%llx\n", fName, fPid, fWinBase);
+ 		fEpoch = sweet_gpu_recoveries();
+ 		fSystem = !strcmp(fName, "backboardd") || !strcmp(fName, "SpringBoard");
+ 		fV2 = true;
