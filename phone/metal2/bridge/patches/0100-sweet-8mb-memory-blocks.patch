@@ -2,15 +2,17 @@ diff --git a/crates/metal2vulkan-runtime/src/memory.rs b/crates/metal2vulkan-run
 index de3df1e..38dfa34 100644
 --- a/crates/metal2vulkan-runtime/src/memory.rs
 +++ b/crates/metal2vulkan-runtime/src/memory.rs
-@@ -48,8 +48,9 @@ use std::ptr::NonNull;
+@@ -48,8 +48,11 @@ use std::ptr::NonNull;
  use std::sync::Arc;
  use std::sync::Mutex;
  
 -/// The size of a pooled block, at most the device's `maxMemoryAllocationSize`.
 -pub(super) const BLOCK_BYTES: u64 = 64 << 20;
-+/// The size of a pooled block, at most the device's `maxMemoryAllocationSize`. SweetMetal2: 24 MB, not 64: `dedicated`
-+/// triggers past `block_bytes / 2` (12 MB), so 24 MB pools 11.5 MB full-screen render targets while capping idle blocks.
-+pub(super) const BLOCK_BYTES: u64 = 24 << 20;
++/// The size of a pooled block, at most the device's `maxMemoryAllocationSize`. SweetMetal2: 8 MB, not 64: `dedicated`
++/// triggers past `block_bytes / 2` (4 MB), so 11.5 MB full-screen render targets get blocks of their own, freed with them.
++/// With 24 MB blocks a small long-lived resource pinned a block that two render targets had used: backboardd held
++/// 18-26 such blocks (430-620 MB of the GPU pool, vayu log35) and iOS jetsammed a process a second.
++pub(super) const BLOCK_BYTES: u64 = 8 << 20;
  
  /// What memory a resource needs.
  #[derive(Clone, Copy, Debug, PartialEq, Eq)]
