@@ -1,0 +1,18 @@
+Poco X3 Pro (vayu): the Adreno zap shader's TrustZone load region.
+
+vayu's live FDT has reserved-memory pil_gpu_region@98f15000 (size 0x2000);
+RMX1931's is at 0x99515000. TZ's PAS authenticates the zap image in place
+there, so it must be vayu's own region.
+
+diff --git a/bsd/dev/sweet_a6xx.c b/bsd/dev/sweet_a6xx.c
+--- a/bsd/dev/sweet_a6xx.c
++++ b/bsd/dev/sweet_a6xx.c
+@@ -647,7 +647,7 @@ static int gmu_hfi(struct a6_gpu *g)
+ /* ---- zap shader through TrustZone PAS ---- */
+ 
+ #define PAS_GPU		13
+-#define ZAP_REGION	0x99515000ull	/* RMX1931 reserved-memory pil_gpu_region */
++#define ZAP_REGION	0x98f15000ull	/* vayu reserved-memory pil_gpu_region */
+ #define ZAP_SIZE	0x2000u
+ #define SCM_PIL(cmd)	(0x42000000ull | (2u << 8) | (cmd))
+ 
