@@ -18,6 +18,7 @@
 #include "showlog.h"
 #include "diag.h"
 #include "disptest.h"
+#include "stridetest.h"
 #include "gpuprobe.h"
 #include "smmuprobe.h"
 #include "spmi.h"
@@ -413,6 +414,12 @@ void shim_main(uintptr_t dtb)
 	wdt_arm(20);	/* a hung GPU register access resets the phone */
 	gpuprobe_run(save_log);
 	save_log("gpuprobe done");
+	reset();
+#endif
+#ifdef SHIM_STRIDETEST
+	sde_probe();
+	sde_autorefresh(1);
+	stridetest_run();
 	reset();
 #endif
 #ifdef SHIM_DISPTEST
