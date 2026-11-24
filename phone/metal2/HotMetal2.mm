@@ -192,6 +192,83 @@ static void b3a8_num(CFMutableDictionaryRef d, CFStringRef k, long long v)
 	CFDictionarySetValue(d, k, n);
 	CFRelease(n);
 }
+/*
+ * SweetMetal2 (vayu): T11, an 'LA08' (RG8, CA's grayscale text backing store) or 'L008' (R8) IOSurface at the row pitches backboardd
+ * imports app labels at (log47/59: 240x240 row 480, 298x286 row 608, 312x202 row 640, 1152x72 row 2304), read through a kernel:
+ * L = x & 255, A = y & 255, so a wrong texel names the source texel the GPU read.
+ */
+static void la08_test(id<MTLDevice> dev, id<MTLCommandQueue> q, uint32_t fcc, uint32_t w, uint32_t h, uint32_t row)
+{
+	const uint32_t bpe = fcc == 0x4c413038 ? 2 : 1;
+	CFMutableDictionaryRef props = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	b3a8_num(props, CFSTR("IOSurfaceWidth"), w);
+	b3a8_num(props, CFSTR("IOSurfaceHeight"), h);
+	b3a8_num(props, CFSTR("IOSurfacePixelFormat"), fcc);
+	b3a8_num(props, CFSTR("IOSurfaceBytesPerElement"), bpe);
+	b3a8_num(props, CFSTR("IOSurfaceBytesPerRow"), row);
+	b3a8_num(props, CFSTR("IOSurfaceAllocSize"), ((uint64_t)row * h + 16383) & ~16383ull);
+	IOSurfaceRef surf = IOSurfaceCreate(props);
+	CFRelease(props);
+	if (!surf) {
+		fprintf(stderr, "T11 %c%c%c%c %ux%u row %u: IOSurfaceCreate failed\n", fcc >> 24, fcc >> 16 & 255, fcc >> 8 & 255, fcc & 255, w, h, row);
+		return;
+	}
+	IOSurfaceLock(surf, 0, NULL);
+	uint8_t *b = (uint8_t *)IOSurfaceGetBaseAddress(surf);
+	const size_t br = IOSurfaceGetBytesPerRow(surf);
+	memset(b, 0xEE, IOSurfaceGetAllocSize(surf));
+	for (uint32_t y = 0; y < h; y++)
+		for (uint32_t x = 0; x < w; x++) {
+			b[y * br + x * bpe] = (uint8_t)x;
+			if (bpe == 2)
+				b[y * br + x * bpe + 1] = (uint8_t)y;
+		}
+	sys_dcache_flush(b, IOSurfaceGetAllocSize(surf));
+	IOSurfaceUnlock(surf, 0, NULL);
+	MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:bpe == 2 ? MTLPixelFormatRG8Unorm : MTLPixelFormatR8Unorm
+										      width:w height:h mipmapped:NO];
+	td.usage = MTLTextureUsageShaderRead;
+	td.storageMode = MTLStorageModeShared;
+	id<MTLTexture> tex = [dev newTextureWithDescriptor:td iosurface:surf plane:0];
+	static id<MTLLibrary> lib;
+	if (!lib)
+		lib = native_bridge_metal_library_with_air(k_xr_two_planes_bc, sizeof(k_xr_two_planes_bc));
+	id<MTLFunction> fn = [lib newFunctionWithName:@"xr2p_read_float"];
+	id<MTLComputePipelineState> ps = fn ? [dev newComputePipelineStateWithFunction:fn error:nil] : nil;
+	const uint32_t n = w * h;
+	id<MTLBuffer> out = [dev newBufferWithLength:(NSUInteger)16 * n options:MTLResourceStorageModeShared];
+	if (!tex || !ps || !out) {
+		fprintf(stderr, "T11 %ux%u row %zu: texture %p pipeline %p\n", w, h, br, tex, ps);
+		CFRelease(surf);
+		return;
+	}
+	memset(out.contents, 0xab, 16 * n);
+	id<MTLCommandBuffer> cb = [q commandBuffer];
+	id<MTLComputeCommandEncoder> ce = [cb computeCommandEncoder];
+	[ce setComputePipelineState:ps];
+	[ce setTexture:tex atIndex:0];
+	[ce setBuffer:out offset:0 atIndex:0];
+	[ce setBytes:&w length:4 atIndex:1];
+	[ce dispatchThreads:MTLSizeMake(w, h, 1) threadsPerThreadgroup:MTLSizeMake(32, 32, 1)];
+	[ce endEncoding];
+	[cb commit];
+	[cb waitUntilCompleted];
+	const float *o = (const float *)out.contents;
+	unsigned bad = 0, shown = 0, firstBadRow = h;
+	for (uint32_t i = 0; i < n; i++) {
+		const uint32_t x = i % w, y = i / w;
+		const int gl = (int)lrintf(o[4 * i] * 255), ga = (int)lrintf(o[4 * i + 1] * 255);
+		if (gl != (int)(x & 255) || (bpe == 2 && ga != (int)(y & 255))) {
+			if (!bad++)
+				firstBadRow = y;
+			if (shown++ < 4)
+				fprintf(stderr, "T11 %ux%u row %zu: (%u,%u) read L %d A %d\n", w, h, br, x, y, gl, ga);
+		}
+	}
+	fprintf(stderr, "T11 %c%c%c%c %ux%u row %zu: %u/%u wrong, first bad row %u (status %ld)\n", fcc >> 24, fcc >> 16 & 255, fcc >> 8 & 255,
+		fcc & 255, w, h, br, bad, n, firstBadRow, (long)cb.status);
+	CFRelease(surf);
+}
 static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 {
 	const uint32_t r0 = (4 * w + 63) & ~63u, r1 = (w + 63) & ~63u;
@@ -728,6 +805,12 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC), dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
 				@autoreleasepool {
 					const uint32_t sizes[][2] = { { 64, 8 }, { 37, 5 }, { 1024, 256 } };
+					id<MTLCommandQueue> q = [d newCommandQueue];
+					const uint32_t la[][4] = { { 0x4c413038, 240, 240, 480 }, { 0x4c413038, 298, 286, 608 }, { 0x4c413038, 312, 202, 640 },
+								   { 0x4c413038, 1152, 72, 2304 }, { 0x4c413038, 100, 30, 208 }, { 0x4c303038, 298, 40, 304 },
+								   { 0x4c303038, 240, 40, 256 } };
+					for (auto &z : la)
+						la08_test(d, q, z[0], z[1], z[2], z[3]);
 					for (auto &z : sizes)
 						b3a8_test(d, z[0], z[1]);
 				}
