@@ -2277,6 +2277,11 @@ static void b3a8MaybeDump(IOSurfaceRef surface) {
  static const int want=[]{const char *v=getenv("HOT_MTL2_B3A8_DUMP");return v?atoi(v):0;}();
  // HOT_MTL2_B3A8_DUMP_SMALL=1: backboardd only, text-sized surfaces (w >= 64, h <= 160, e.g. app labels) instead of w >= 256; one snapshot.
  static const bool small=getenv("HOT_MTL2_B3A8_DUMP_SMALL") && !strcmp(getprogname(),"backboardd");
+ // HOT_MTL2_B3A8_DUMP_AFTER=S: backboardd only, surfaces first seen S seconds or more after its first import (atlases made once an app
+ // opens, never caught by the first N); one snapshot.
+ static const int after=[]{const char *v=getenv("HOT_MTL2_B3A8_DUMP_AFTER");return v && !strcmp(getprogname(),"backboardd")?atoi(v):0;}();
+ static const CFAbsoluteTime started=CFAbsoluteTimeGetCurrent();
+ if(getenv("HOT_MTL2_B3A8_DUMP_AFTER") && (!after || CFAbsoluteTimeGetCurrent()-started<after))return;
  if(!want || IOSurfaceGetPixelFormat(surface)!=0x62336138u || IOSurfaceGetPlaneCount(surface)!=2)return;
  const size_t sw=IOSurfaceGetWidthOfPlane(surface,0),sh=IOSurfaceGetHeightOfPlane(surface,0);
  if(small ? (sw<64 || sh>160) : (getenv("HOT_MTL2_B3A8_DUMP_SMALL") || sw<256))return;
@@ -2284,7 +2289,7 @@ static void b3a8MaybeDump(IOSurfaceRef surface) {
  {std::lock_guard<std::mutex> g(lock);const uint32_t id=IOSurfaceGetID(surface);
   if((int)seen.size()>=want || std::find(seen.begin(),seen.end(),id)!=seen.end())return;seen.push_back(id);}
  CFRetain(surface);
- const int last=small?0:1;
+ const int last=(small || after)?0:1;
  for(int snap=0;snap<=last;snap++)
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(25+snap)*NSEC_PER_SEC),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
    b3a8DumpOnce(surface,snap);if(snap==last)CFRelease(surface);});
