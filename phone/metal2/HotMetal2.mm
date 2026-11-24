@@ -451,6 +451,92 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 		fprintf(stderr, "B3A8 %ux%u T%d draw%s: inside %u/%u wrong, outside %u/%u wrong (status %ld)\n", w, h, 6 + k, k ? " blend" : "", badIn,
 			sw * sh, badOut, n - sw * sh, (long)cb.status);
 	}
+	// T8 framebuffer fetch (fixture fetch_ordered: dst * 0.5) under a scissor, c0 alone; T9 the same in RenderBox's pass
+	// shape (log56: c1 f65 and c2 f550 memoryless, depth/stencil f260 memoryless). Inside: codes of d/2, outside kept.
+	for (int k = 0; k < 2 && h >= 3 && w >= 5; k++) {
+		static id<MTLLibrary> vlib, flib;
+		if (!vlib)
+			vlib = native_bridge_metal_library_with_air(k_rt6_samples_bc, sizeof(k_rt6_samples_bc));
+		if (!flib)
+			flib = native_bridge_metal_library_with_air(k_fragment_fetch_bc, sizeof(k_fragment_fetch_bc));
+		MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+		pd.vertexFunction = [vlib newFunctionWithName:@"rt6_fill_vertex"];
+		pd.fragmentFunction = [flib newFunctionWithName:@"fetch_ordered"];
+		pd.colorAttachments[0].pixelFormat = (MTLPixelFormat)550;
+		MTLRenderPassDescriptor *fp = [MTLRenderPassDescriptor renderPassDescriptor];
+		fp.colorAttachments[0].texture = tex;
+		fp.colorAttachments[0].loadAction = MTLLoadActionLoad;
+		fp.colorAttachments[0].storeAction = MTLStoreActionStore;
+		if (k) {
+			pd.colorAttachments[1].pixelFormat = (MTLPixelFormat)65;
+			pd.colorAttachments[2].pixelFormat = (MTLPixelFormat)550;
+			pd.depthAttachmentPixelFormat = pd.stencilAttachmentPixelFormat = (MTLPixelFormat)260;
+			auto ml = [&](MTLPixelFormat f) {
+				MTLTextureDescriptor *m = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:f width:w height:h mipmapped:NO];
+				m.usage = MTLTextureUsageRenderTarget;
+				m.storageMode = MTLStorageModeMemoryless;
+				return [dev newTextureWithDescriptor:m];
+			};
+			id<MTLTexture> m1 = ml((MTLPixelFormat)65), m2 = ml((MTLPixelFormat)550), ds = ml((MTLPixelFormat)260);
+			fp.colorAttachments[1].texture = m1;
+			fp.colorAttachments[1].loadAction = MTLLoadActionClear;
+			fp.colorAttachments[1].storeAction = MTLStoreActionDontCare;
+			fp.colorAttachments[2].texture = m2;
+			fp.colorAttachments[2].loadAction = MTLLoadActionClear;
+			fp.colorAttachments[2].storeAction = MTLStoreActionDontCare;
+			fp.depthAttachment.texture = ds;
+			fp.depthAttachment.loadAction = MTLLoadActionClear;
+			fp.depthAttachment.storeAction = MTLStoreActionDontCare;
+			fp.stencilAttachment.texture = ds;
+			fp.stencilAttachment.loadAction = MTLLoadActionClear;
+			fp.stencilAttachment.storeAction = MTLStoreActionDontCare;
+			if (!m1 || !m2 || !ds) {
+				fprintf(stderr, "B3A8 %ux%u T9: memoryless %p %p %p\n", w, h, m1, m2, ds);
+				continue;
+			}
+		}
+		NSError *err = nil;
+		id<MTLRenderPipelineState> ps = (pd.vertexFunction && pd.fragmentFunction) ? [dev newRenderPipelineStateWithDescriptor:pd error:&err] : nil;
+		if (!ps) {
+			fprintf(stderr, "B3A8 %ux%u T%d: no pipeline (lib %p): %s\n", w, h, 8 + k, flib, err ? err.description.UTF8String : "");
+			continue;
+		}
+		const uint32_t n = w * h, sx = 2, sy = 1, sw = w - 4, sh = h - 2;
+		fill();
+		cb = [q commandBuffer];
+		id<MTLRenderCommandEncoder> re = [cb renderCommandEncoderWithDescriptor:fp];
+		[re setRenderPipelineState:ps];
+		[re setScissorRect:(MTLScissorRect){ sx, sy, sw, sh }];
+		[re drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+		[re endEncoding];
+		[cb commit];
+		[cb waitUntilCompleted];
+		sys_dcache_flush(IOSurfaceGetBaseAddress(surf), IOSurfaceGetAllocSize(surf));
+		unsigned badIn = 0, badOut = 0, shown = 0;
+		for (uint32_t y = 0; y < h; y++)
+			for (uint32_t x = 0; x < w; x++) {
+				const uint32_t got = ((uint32_t *)(p0 + y * br0))[x] & 0x3fffffff, c = word(x, y);
+				const uint8_t ga = p1[y * br1 + x];
+				const bool in = x >= sx && x < sx + sw && y >= sy && y < sy + sh;
+				const int cc[3] = { (int)((c >> 20) & 0x3ff), (int)((c >> 10) & 0x3ff), (int)(c & 0x3ff) };
+				int want[4];
+				for (int j = 0; j < 3; j++)
+					want[j] = in ? (int)lrintf(fminf(fmaxf(510 * (((cc[j] - 384) / 510.f) * 0.5f) + 384, 0), 1023)) : cc[j];
+				want[3] = in ? (int)lrintf(alpha(x, y) * 0.5f) : alpha(x, y);
+				const int g[4] = { (int)((got >> 20) & 0x3ff), (int)((got >> 10) & 0x3ff), (int)(got & 0x3ff), ga };
+				bool ok = true;
+				for (int j = 0; j < 4; j++)
+					ok = ok && abs(g[j] - want[j]) <= 1;
+				if (!ok) {
+					in ? badIn++ : badOut++;
+					if (shown++ < 6)
+						fprintf(stderr, "B3A8 %ux%u T%d: (%u,%u)%s got %d %d %d a%d want %d %d %d a%d\n", w, h, 8 + k, x, y, in ? " in" : " out",
+							g[0], g[1], g[2], g[3], want[0], want[1], want[2], want[3]);
+				}
+			}
+		fprintf(stderr, "B3A8 %ux%u T%d fetch%s: inside %u/%u wrong, outside %u/%u wrong (status %ld)\n", w, h, 8 + k,
+			k ? " renderbox-shape" : "", badIn, sw * sh, badOut, n - sw * sh, (long)cb.status);
+	}
 	CFRelease(surf);
 }
 
