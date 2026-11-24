@@ -21,6 +21,7 @@
 #include <sys/mman.h>
 #include <CommonCrypto/CommonDigest.h>
 #include <dlfcn.h>
+#include <zlib.h>
 #include <execinfo.h>
 #include <mach/mach.h>
 #include "bridge/NativeMetalObjects.h"
@@ -2233,8 +2234,44 @@ static uint64_t askAnswer(SEL cmd,NSUInteger arg);
 }
 // The surface's pages are the texels: its mapping in this process is imported without a copy (pinned by the kernel, mapped into the GPU's
 // 4 KiB context by Turnip), so every process that imports the surface renders and samples the same memory.
+// SweetMetal2 (vayu): HOT_MTL2_B3A8_DUMP=N (backboardd): the first N 'b3a8' surfaces of 256+ texels wide imported here are
+// copied raw (plane 0 color words then plane 1 alpha bytes, tight rows), zlib-compressed and base64'd to stderr, 25 s and
+// 26 s after their import ("B3D" header, "B3Z" chunks). Clean text there = the bytes are right and the reader is wrong.
+static void b3a8DumpOnce(IOSurfaceRef surface,int snap) {
+ const uint32_t id=IOSurfaceGetID(surface);
+ const size_t w=IOSurfaceGetWidthOfPlane(surface,0),h=IOSurfaceGetHeightOfPlane(surface,0);
+ const size_t r0=IOSurfaceGetBytesPerRowOfPlane(surface,0),r1=IOSurfaceGetBytesPerRowOfPlane(surface,1);
+ IOSurfaceLock(surface,kIOSurfaceLockReadOnly,nullptr);
+ const uint8_t *p0=(const uint8_t *)IOSurfaceGetBaseAddressOfPlane(surface,0),*p1=(const uint8_t *)IOSurfaceGetBaseAddressOfPlane(surface,1);
+ sys_dcache_flush(IOSurfaceGetBaseAddress(surface),IOSurfaceGetAllocSize(surface));
+ std::vector<uint8_t> raw(w*h*5);
+ for(size_t y=0;y<h;y++){memcpy(&raw[y*w*4],p0+y*r0,w*4);memcpy(&raw[w*h*4+y*w],p1+y*r1,w);}
+ const uint32_t seed=IOSurfaceGetSeed(surface);
+ IOSurfaceUnlock(surface,kIOSurfaceLockReadOnly,nullptr);
+ uLongf zlen=compressBound(raw.size());std::vector<uint8_t> z(zlen);
+ if(compress2(z.data(),&zlen,raw.data(),raw.size(),9)!=Z_OK)return;
+ static const char *b64="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+ std::string s;s.reserve(zlen*4/3+4);
+ for(size_t i=0;i<zlen;i+=3){uint32_t v=z[i]<<16|(i+1<zlen?z[i+1]<<8:0)|(i+2<zlen?z[i+2]:0);
+  s+=b64[v>>18&63];s+=b64[v>>12&63];s+=i+1<zlen?b64[v>>6&63]:'=';s+=i+2<zlen?b64[v&63]:'=';}
+ fprintf(stderr,"B3D %u %d %zu %zu %zu %lu seed %u\n",id,snap,w,h,raw.size(),(unsigned long)zlen,seed);
+ for(size_t i=0,k=0;i<s.size();i+=160,k++)fprintf(stderr,"B3Z %u %d %zu %s\n",id,snap,k,s.substr(i,160).c_str());
+ fflush(stderr);
+}
+static void b3a8MaybeDump(IOSurfaceRef surface) {
+ static const int want=[]{const char *v=getenv("HOT_MTL2_B3A8_DUMP");return v?atoi(v):0;}();
+ if(!want || IOSurfaceGetPixelFormat(surface)!=0x62336138u || IOSurfaceGetPlaneCount(surface)!=2 || IOSurfaceGetWidthOfPlane(surface,0)<256)return;
+ static std::mutex lock;static std::vector<uint32_t> seen;
+ {std::lock_guard<std::mutex> g(lock);const uint32_t id=IOSurfaceGetID(surface);
+  if((int)seen.size()>=want || std::find(seen.begin(),seen.end(),id)!=seen.end())return;seen.push_back(id);}
+ CFRetain(surface);
+ for(int snap=0;snap<2;snap++)
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(25+snap)*NSEC_PER_SEC),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
+   b3a8DumpOnce(surface,snap);if(snap==1)CFRelease(surface);});
+}
 - (id<MTLTexture>)newTextureWithDescriptor:(MTLTextureDescriptor *)d iosurface:(IOSurfaceRef)surface plane:(NSUInteger)plane {
  if(!surface || !d)return nil;
+ b3a8MaybeDump(surface);
  const size_t planeCount=IOSurfaceGetPlaneCount(surface);
  if(planeCount>2 || (planeCount?plane>=planeCount:plane!=0))return nil;
  void *rawBase=IOSurfaceGetBaseAddress(surface);const size_t page=(size_t)getpagesize(),allocation=IOSurfaceGetAllocSize(surface);
