@@ -184,6 +184,8 @@ static bool listed(void)
  * the A640 while lavapipe matches Metal. Lines "B3A8 ..." on stderr.
  */
 #include <IOSurface/IOSurfaceRef.h>
+#include <math.h>
+#include "B3A8SelfTestAIR.h"
 static void b3a8_num(CFMutableDictionaryRef d, CFStringRef k, long long v)
 {
 	CFNumberRef n = CFNumberCreate(NULL, kCFNumberLongLongType, &v);
@@ -289,6 +291,64 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 				if (b[y * w + x] != word(x, y) && ++bad && shown++ < 4)
 					fprintf(stderr, "B3A8 %ux%u T1: (%u,%u) %08x want %08x\n", w, h, x, y, b[y * w + x], word(x, y));
 		fprintf(stderr, "B3A8 %ux%u T1 blit->buffer: %u/%u wrong (status %ld)\n", w, h, bad, w * h, (long)cb.status);
+	}
+	// T4 kernel read (texture2d<float>::read) and T5 nearest sample at texel centers (fixtures xr2p_read_float, xr_sample_runtime):
+	// the texels decoded, color (code - 384) / 510 (red bits 20-29, blue 0-9), alpha / 255.
+	fill();
+	for (int k = 0; k < 2; k++) {
+		static id<MTLLibrary> libs[2];
+		if (!libs[k])
+			libs[k] = k ? native_bridge_metal_library_with_air(k_xr_samples_bc, sizeof(k_xr_samples_bc))
+				    : native_bridge_metal_library_with_air(k_xr_two_planes_bc, sizeof(k_xr_two_planes_bc));
+		id<MTLFunction> fn = [libs[k] newFunctionWithName:k ? @"xr_sample_runtime" : @"xr2p_read_float"];
+		NSError *err = nil;
+		id<MTLComputePipelineState> ps = fn ? [dev newComputePipelineStateWithFunction:fn error:&err] : nil;
+		if (!ps) {
+			fprintf(stderr, "B3A8 %ux%u T%d: no pipeline (lib %p fn %p): %s\n", w, h, 4 + k, libs[k], fn, err ? err.description.UTF8String : "");
+			continue;
+		}
+		const uint32_t n = w * h;
+		id<MTLBuffer> out = [dev newBufferWithLength:(NSUInteger)16 * n options:MTLResourceStorageModeShared];
+		memset(out.contents, 0xab, 16 * n);
+		id<MTLBuffer> uv = [dev newBufferWithLength:(NSUInteger)8 * n options:MTLResourceStorageModeShared];
+		for (uint32_t i = 0; i < n; i++) {
+			((float *)uv.contents)[2 * i] = ((i % w) + 0.5f) / w;
+			((float *)uv.contents)[2 * i + 1] = ((i / w) + 0.5f) / h;
+		}
+		MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
+		sd.minFilter = sd.magFilter = MTLSamplerMinMagFilterNearest;
+		id<MTLSamplerState> smp = [dev newSamplerStateWithDescriptor:sd];
+		cb = [q commandBuffer];
+		id<MTLComputeCommandEncoder> ce = [cb computeCommandEncoder];
+		[ce setComputePipelineState:ps];
+		[ce setTexture:tex atIndex:0];
+		if (k) {
+			[ce setSamplerState:smp atIndex:0];
+			[ce setBuffer:uv offset:0 atIndex:0];
+			[ce setBuffer:out offset:0 atIndex:1];
+			[ce dispatchThreads:MTLSizeMake(n, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+		} else {
+			[ce setBuffer:out offset:0 atIndex:0];
+			[ce setBytes:&w length:4 atIndex:1];
+			[ce dispatchThreads:MTLSizeMake(w, h, 1) threadsPerThreadgroup:MTLSizeMake(32, 32, 1)];
+		}
+		[ce endEncoding];
+		[cb commit];
+		[cb waitUntilCompleted];
+		const float *o = (const float *)out.contents;
+		unsigned bad = 0, shown = 0;
+		for (uint32_t i = 0; i < n; i++) {
+			const uint32_t x = i % w, y = i / w, c = word(x, y);
+			const float want[4] = { (float)(((c >> 20) & 0x3ff) - 384) / 510.f, (float)(((c >> 10) & 0x3ff) - 384) / 510.f,
+						(float)((c & 0x3ff) - 384) / 510.f, alpha(x, y) / 255.f };
+			bool ok = true;
+			for (int j = 0; j < 4; j++)
+				ok = ok && fabsf(o[4 * i + j] - want[j]) < 0.003f;
+			if (!ok && ++bad && shown++ < 4)
+				fprintf(stderr, "B3A8 %ux%u T%d: (%u,%u) got %.4f %.4f %.4f %.4f want %.4f %.4f %.4f %.4f\n", w, h, 4 + k, x, y, o[4 * i],
+					o[4 * i + 1], o[4 * i + 2], o[4 * i + 3], want[0], want[1], want[2], want[3]);
+		}
+		fprintf(stderr, "B3A8 %ux%u T%d %s: %u/%u wrong (status %ld)\n", w, h, 4 + k, k ? "sample" : "kernel read", bad, n, (long)cb.status);
 	}
 	// T2: a pass that loads and stores, no draws: copy in, then copy back.
 	fill();
