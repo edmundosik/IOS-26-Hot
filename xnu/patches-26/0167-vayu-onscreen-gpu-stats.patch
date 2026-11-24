@@ -1,0 +1,152 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] vayu: on-screen GPU stats overlay, boot-arg sweethud=1 (0167)
+
+The user cannot tell from feel whether an experiment made the UI faster.
+With sweethud=1 every GPU present blends a small box over the top left of
+the panel: presents per second, GPU busy %, GPU ms per presented frame and
+GPU pool MB in use, redrawn every half second into one of two images in
+the pool (free space between the dim tiles and the corner mattes).
+---
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index f7b67f2..348a47c 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -350,6 +350,8 @@ static uint64_t gstat_last_busy_ms, gstat_last_longest_us, gstat_last_mean_us;
+ static uint32_t gstat_last_owner_count;
+ static struct sweet_diag_gpu_owner gstat_last_owners[SWEET_DIAG_MAX_OWNERS];
+ 
++static uint64_t hud_busy;	/* GPU ticks (19.2 MHz) finished since the on-screen stats last updated (hud_blit_locked) */
++
+ static void
+ gpu_owner_locked(uint32_t fence, int pid)
+ {
+@@ -376,6 +378,7 @@ gpu_stats_locked(void)
+ 		gstat_own[o].busy += t;
+ 		gstat_n++;
+ 		gstat_busy += t;
++		hud_busy += t;
+ 		if (t > gstat_longest) {
+ 			gstat_longest = t;
+ 		}
+@@ -684,6 +687,113 @@ display_mask_build(uint32_t r, uint32_t ext)
+ 	flush_dcache64((addr64_t)(uintptr_t)atlas, DISPLAY_MASK_PITCH * DISPLAY_MASK_DIM, FALSE);
+ }
+ 
++/*
++ * On-screen stats (boot-arg sweethud=1): a small box over the top left of the panel, blended over each present,
++ * showing presents per second, GPU busy %, GPU ms per presented frame and GPU pool MB in use, updated every
++ * half second. The CPU draws it into one of two images in the pool (the other may still be read by a queued
++ * present), so speed changes can be seen live instead of only in the 5 s log lines.
++ */
++#define HUD_OFF		0x450000ULL	/* two images, free pool space between the dim tiles and the mattes */
++#define HUD_SCALE	2u
++#define HUD_COLS	18u
++#define HUD_ROWS	3u
++#define HUD_PAD		8u
++#define HUD_W		(HUD_COLS * 8u * HUD_SCALE + 2u * HUD_PAD)
++#define HUD_H		(HUD_ROWS * 16u * HUD_SCALE + 2u * HUD_PAD)
++#define HUD_PITCH	(HUD_W * 4u)
++#define HUD_BYTES	((uint64_t)HUD_PITCH * HUD_H)
++#define HUD_X		40u
++#define HUD_Y		150u
++_Static_assert(HUD_OFF + 2 * HUD_BYTES <= DISPLAY_MASK_OFF, "HUD images overlap the corner mattes");
++_Static_assert((HUD_PITCH & 63) == 0, "HUD pitch");
++
++extern unsigned char iso_font[256 * 16];
++static uint64_t gpool_used;
++static int hud_on = -1;
++static uint32_t hud_img, hud_frames;
++static uint64_t hud_abs;
++static bool hud_drawn;
++
++static void
++hud_draw_locked(uint32_t img, const char *text)
++{
++	uint32_t *pix = (uint32_t *)(pool_kva + HUD_OFF + img * HUD_BYTES);
++	for (uint32_t i = 0; i < HUD_W * HUD_H; i++) {
++		pix[i] = 0xc0000000u;	/* black, 75% */
++	}
++	uint32_t row = 0, col = 0;
++	for (const char *c = text; *c && row < HUD_ROWS; c++) {
++		if (*c == '\n') {
++			row++;
++			col = 0;
++			continue;
++		}
++		if (col >= HUD_COLS) {
++			continue;
++		}
++		const unsigned char *glyph = iso_font + (unsigned char)*c * 16;
++		uint32_t x0 = HUD_PAD + col * 8u * HUD_SCALE, y0 = HUD_PAD + row * 16u * HUD_SCALE;
++		for (uint32_t gy = 0; gy < 16; gy++) {
++			for (uint32_t gx = 0; gx < 8; gx++) {
++				if (!(glyph[gy] & (1u << gx))) {
++					continue;
++				}
++				for (uint32_t sy = 0; sy < HUD_SCALE; sy++) {
++					uint32_t *line = pix + (y0 + gy * HUD_SCALE + sy) * HUD_W + x0 + gx * HUD_SCALE;
++					for (uint32_t sx = 0; sx < HUD_SCALE; sx++) {
++						line[sx] = 0xffffffffu;
++					}
++				}
++			}
++		}
++		col++;
++	}
++	flush_dcache64((addr64_t)(uintptr_t)pix, (unsigned)HUD_BYTES, FALSE);
++}
++
++/* With sweet_gpu_lock, once per present: the stats blit into the present IB at dw (0 dwords when off). */
++static uint32_t
++hud_blit_locked(uint32_t fb_pitch, uint32_t *dw)
++{
++	if (hud_on < 0) {
++		uint32_t v = 0;
++		PE_parse_boot_argn("sweethud", &v, sizeof(v));
++		hud_on = v != 0;
++	}
++	if (!hud_on) {
++		return 0;
++	}
++	uint64_t now = mach_absolute_time(), ns;
++	hud_frames++;
++	if (hud_abs == 0) {
++		hud_abs = now;
++		hud_busy = 0;
++	}
++	absolutetime_to_nanoseconds(now - hud_abs, &ns);
++	if (!hud_drawn || ns >= 500000000ULL) {
++		char text[HUD_ROWS * (HUD_COLS + 1) + 8];
++		uint64_t ms = ns / 1000000ULL, busy_us = hud_busy * 10ULL / 192ULL;
++		uint64_t fps10 = ms ? hud_frames * 10000ULL / ms : 0;
++		uint64_t pct = ms ? busy_us / 10ULL / ms : 0;
++		uint64_t frame10 = hud_frames ? busy_us / 100ULL / hud_frames : 0;
++		snprintf(text, sizeof(text), "FPS %3llu.%llu GPU%3llu%%\nGPU %3llu.%llu ms/frm\nPOOL %5llu MB",
++		    fps10 / 10, fps10 % 10, pct > 999 ? 999 : pct, frame10 / 10, frame10 % 10, gpool_used >> 20);
++		hud_img ^= 1;
++		hud_draw_locked(hud_img, hud_drawn ? text : "FPS   ...\nGPU   ...\nPOOL  ...");
++		hud_drawn = true;
++		hud_abs = now;
++		hud_frames = 0;
++		hud_busy = 0;
++	}
++	struct a6_blit b = {
++		.src_iova = A6_GVA_POOL + HUD_OFF + hud_img * HUD_BYTES,
++		.src_w = HUD_W, .src_h = HUD_H, .src_pitch = HUD_PITCH, .sw = HUD_W, .sh = HUD_H,
++		.dst_iova = A6_GVA_FB, .dst_pitch = fb_pitch,
++		.dx = HUD_X, .dy = HUD_Y, .dw = HUD_W, .dh = HUD_H, .blend = true,
++	};
++	return a6_blit_ib(&gpu, &b, dw);
++}
++
+ /*
+  * Blit a mapped surface, scaled to fit and centred, into the panel memory
+  * (rows of fb_pitch bytes). With corner_radius, the image gets continuous
+@@ -845,6 +955,7 @@ sweet_gpu_present(int s, uintptr_t kva, uint32_t offset, uint32_t w, uint32_t h,
+ 	 * (a waited present took 15-30 ms with metal2vulkan's frames in the ring, and the vsync notifications
+ 	 * CA paces on came late). Two IB slots: only the one two presents back must have landed.
+ 	 */
++	n += hud_blit_locked(fb_pitch, ib + n);
+ 	uint32_t k = present_next & (PRESENT_SLOTS - 1u);
+ 	int rc = present_wait_locked(k, "present");
+ 	if (rc == 0) {
