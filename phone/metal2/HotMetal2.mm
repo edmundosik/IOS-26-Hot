@@ -339,8 +339,8 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 		unsigned bad = 0, shown = 0;
 		for (uint32_t i = 0; i < n; i++) {
 			const uint32_t x = i % w, y = i / w, c = word(x, y);
-			const float want[4] = { (float)(((c >> 20) & 0x3ff) - 384) / 510.f, (float)(((c >> 10) & 0x3ff) - 384) / 510.f,
-						(float)((c & 0x3ff) - 384) / 510.f, alpha(x, y) / 255.f };
+			const float want[4] = { ((int)((c >> 20) & 0x3ff) - 384) / 510.f, ((int)((c >> 10) & 0x3ff) - 384) / 510.f,
+						((int)(c & 0x3ff) - 384) / 510.f, alpha(x, y) / 255.f };
 			bool ok = true;
 			for (int j = 0; j < 4; j++)
 				ok = ok && fabsf(o[4 * i + j] - want[j]) < 0.003f;
@@ -370,6 +370,87 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 	[cb commit];
 	[cb waitUntilCompleted];
 	check("T3 clear", true, 0, 153);
+	// T6 draw (no blend) and T7 draw (source-over) of per-pixel values (fixture rt6_fill_rgba32float) under a scissor,
+	// load/store: inside the codes round(510v+384) (T7 blended over the pattern), outside the pattern kept.
+	for (int k = 0; k < 2 && h >= 3 && w >= 5; k++) {
+		static id<MTLLibrary> lib;
+		if (!lib)
+			lib = native_bridge_metal_library_with_air(k_rt6_samples_bc, sizeof(k_rt6_samples_bc));
+		MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+		pd.vertexFunction = [lib newFunctionWithName:@"rt6_fill_vertex"];
+		pd.fragmentFunction = [lib newFunctionWithName:@"rt6_fill_rgba32float"];
+		pd.colorAttachments[0].pixelFormat = (MTLPixelFormat)550;
+		if (k) {
+			pd.colorAttachments[0].blendingEnabled = YES;
+			pd.colorAttachments[0].sourceRGBBlendFactor = MTLBlendFactorSourceAlpha;
+			pd.colorAttachments[0].destinationRGBBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+			pd.colorAttachments[0].sourceAlphaBlendFactor = MTLBlendFactorOne;
+			pd.colorAttachments[0].destinationAlphaBlendFactor = MTLBlendFactorOneMinusSourceAlpha;
+		}
+		NSError *err = nil;
+		id<MTLRenderPipelineState> ps = (pd.vertexFunction && pd.fragmentFunction) ? [dev newRenderPipelineStateWithDescriptor:pd error:&err] : nil;
+		if (!ps) {
+			fprintf(stderr, "B3A8 %ux%u T%d: no pipeline (lib %p): %s\n", w, h, 6 + k, lib, err ? err.description.UTF8String : "");
+			continue;
+		}
+		const uint32_t n = w * h, sx = 2, sy = 1, sw = w - 4, sh = h - 2;
+		id<MTLBuffer> vals = [dev newBufferWithLength:(NSUInteger)16 * n options:MTLResourceStorageModeShared];
+		float *v = (float *)vals.contents;
+		for (uint32_t i = 0; i < n; i++) {
+			const uint32_t x = i % w, y = i / w;
+			v[4 * i] = ((x * 5 + y * 3) % 160) / 100.f - 0.5f;
+			v[4 * i + 1] = ((x + 7 * y) % 100) / 100.f;
+			v[4 * i + 2] = 0.25f + (x % 4) * 0.1f;
+			v[4 * i + 3] = ((x * 11 + y * 7) % 256) / 255.f;
+		}
+		const uint32_t shape[2] = { w, 1 };
+		fill();
+		rp.colorAttachments[0].loadAction = MTLLoadActionLoad;
+		cb = [q commandBuffer];
+		id<MTLRenderCommandEncoder> re = [cb renderCommandEncoderWithDescriptor:rp];
+		[re setRenderPipelineState:ps];
+		[re setScissorRect:(MTLScissorRect){ sx, sy, sw, sh }];
+		[re setFragmentBuffer:vals offset:0 atIndex:0];
+		[re setFragmentBytes:shape length:8 atIndex:1];
+		[re drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+		[re endEncoding];
+		[cb commit];
+		[cb waitUntilCompleted];
+		sys_dcache_flush(IOSurfaceGetBaseAddress(surf), IOSurfaceGetAllocSize(surf));
+		unsigned badIn = 0, badOut = 0, shown = 0;
+		for (uint32_t y = 0; y < h; y++)
+			for (uint32_t x = 0; x < w; x++) {
+				const uint32_t i = y * w + x, got = ((uint32_t *)(p0 + y * br0))[x] & 0x3fffffff, c = word(x, y);
+				const uint8_t ga = p1[y * br1 + x];
+				const bool in = x >= sx && x < sx + sw && y >= sy && y < sy + sh;
+				int want[4];
+				if (!in) {
+					want[0] = (c >> 20) & 0x3ff, want[1] = (c >> 10) & 0x3ff, want[2] = c & 0x3ff, want[3] = alpha(x, y);
+				} else {
+					const float a = v[4 * i + 3];
+					const float d[3] = { ((int)((c >> 20) & 0x3ff) - 384) / 510.f, ((int)((c >> 10) & 0x3ff) - 384) / 510.f,
+							     ((int)(c & 0x3ff) - 384) / 510.f };
+					for (int j = 0; j < 3; j++) {
+						const float o = k ? v[4 * i + j] * a + d[j] * (1 - a) : v[4 * i + j];
+						want[j] = (int)lrintf(fminf(fmaxf(510 * o + 384, 0), 1023));
+					}
+					const float oa = k ? a + alpha(x, y) / 255.f * (1 - a) : a;
+					want[3] = (int)lrintf(fminf(fmaxf(oa, 0), 1) * 255);
+				}
+				const int g[4] = { (int)((got >> 20) & 0x3ff), (int)((got >> 10) & 0x3ff), (int)(got & 0x3ff), ga };
+				bool ok = true;
+				for (int j = 0; j < 4; j++)
+					ok = ok && abs(g[j] - want[j]) <= (k ? 2 : 1);
+				if (!ok) {
+					in ? badIn++ : badOut++;
+					if (shown++ < 6)
+						fprintf(stderr, "B3A8 %ux%u T%d: (%u,%u)%s got %d %d %d a%d want %d %d %d a%d\n", w, h, 6 + k, x, y, in ? " in" : " out",
+							g[0], g[1], g[2], g[3], want[0], want[1], want[2], want[3]);
+				}
+			}
+		fprintf(stderr, "B3A8 %ux%u T%d draw%s: inside %u/%u wrong, outside %u/%u wrong (status %ld)\n", w, h, 6 + k, k ? " blend" : "", badIn,
+			sw * sh, badOut, n - sw * sh, (long)cb.status);
+	}
 	CFRelease(surf);
 }
 
