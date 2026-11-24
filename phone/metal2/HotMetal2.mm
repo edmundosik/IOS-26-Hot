@@ -275,7 +275,7 @@ static void la08_test(id<MTLDevice> dev, id<MTLCommandQueue> q, uint32_t fcc, ui
  * layer images), read through a kernel: inside byte 0 = local x, byte 1 = local y; outside the zeros of a first full upload.
  */
 static void upload_test(id<MTLDevice> dev, id<MTLCommandQueue> q, MTLPixelFormat pf, uint32_t bpe, uint32_t w, uint32_t h, uint32_t rx, uint32_t ry,
-			uint32_t rw, uint32_t rh, uint32_t pad)
+			uint32_t rw, uint32_t rh, uint32_t pad, bool blit = false)
 {
 	MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pf width:w height:h mipmapped:NO];
 	td.usage = MTLTextureUsageShaderRead;
@@ -294,7 +294,19 @@ static void upload_test(id<MTLDevice> dev, id<MTLCommandQueue> q, MTLPixelFormat
 			if (bpe > 2)
 				t[2] = 7, t[3] = 255;
 		}
-	[tex replaceRegion:MTLRegionMake2D(rx, ry, rw, rh) mipmapLevel:0 withBytes:src.data() bytesPerRow:row];
+	// T13 (blit): the same rectangle through copyFromBuffer:toTexture: from 256 bytes into a shared buffer (CA's image uploads).
+	if (blit) {
+		id<MTLBuffer> sb = [dev newBufferWithLength:256 + src.size() options:MTLResourceStorageModeShared];
+		memcpy((uint8_t *)sb.contents + 256, src.data(), src.size());
+		id<MTLCommandBuffer> ub = [q commandBuffer];
+		id<MTLBlitCommandEncoder> be = [ub blitCommandEncoder];
+		[be copyFromBuffer:sb sourceOffset:256 sourceBytesPerRow:row sourceBytesPerImage:row * rh sourceSize:MTLSizeMake(rw, rh, 1) toTexture:tex
+		    destinationSlice:0 destinationLevel:0 destinationOrigin:MTLOriginMake(rx, ry, 0)];
+		[be endEncoding];
+		[ub commit];
+		[ub waitUntilCompleted];
+	} else
+		[tex replaceRegion:MTLRegionMake2D(rx, ry, rw, rh) mipmapLevel:0 withBytes:src.data() bytesPerRow:row];
 	static id<MTLLibrary> lib;
 	if (!lib)
 		lib = native_bridge_metal_library_with_air(k_xr_two_planes_bc, sizeof(k_xr_two_planes_bc));
@@ -330,7 +342,7 @@ static void upload_test(id<MTLDevice> dev, id<MTLCommandQueue> q, MTLPixelFormat
 				fprintf(stderr, "T12 f%lu %ux%u: (%u,%u)%s read %d %d want %d %d\n", (unsigned long)pf, w, h, x, y, in ? " in" : " out", c0, c1, w0, w1);
 		}
 	}
-	fprintf(stderr, "T12 f%lu %ux%u region %u,%u %ux%u row %u: inside %u/%u wrong, outside %u/%u wrong (status %ld)\n", (unsigned long)pf, w, h, rx, ry, rw,
+	fprintf(stderr, "%s f%lu %ux%u region %u,%u %ux%u row %u: inside %u/%u wrong, outside %u/%u wrong (status %ld)\n", blit ? "T13" : "T12", (unsigned long)pf, w, h, rx, ry, rw,
 		rh, row, badIn, rw * rh, badOut, n - rw * rh, (long)cb.status);
 }
 static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
@@ -880,6 +892,10 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 					upload_test(d, q, MTLPixelFormatBGRA8Unorm, 4, 300, 100, 13, 7, 150, 40, 64);
 					upload_test(d, q, MTLPixelFormatRG8Unorm, 2, 1024, 512, 333, 101, 298, 37, 22);
 					upload_test(d, q, MTLPixelFormatBGRA8Unorm, 4, 1024, 512, 333, 101, 281, 37, 4);
+					upload_test(d, q, MTLPixelFormatRG8Unorm, 2, 300, 100, 13, 7, 150, 40, 52, true);
+					upload_test(d, q, MTLPixelFormatBGRA8Unorm, 4, 300, 100, 13, 7, 150, 40, 64, true);
+					upload_test(d, q, MTLPixelFormatR8Unorm, 1, 1024, 512, 333, 101, 298, 37, 22, true);
+					upload_test(d, q, MTLPixelFormatBGRA8Unorm, 4, 1024, 512, 333, 101, 281, 37, 4, true);
 					for (auto &z : sizes)
 						b3a8_test(d, z[0], z[1]);
 				}

@@ -1260,6 +1260,20 @@ static void waitForResource(id resource) {
      destinationOrigin:(MTLOrigin)dO {
  if(![self buffers:NB_OBJECTS(s) count:1] || ![self textures:NB_OBJECTS(d) count:1])return;
  if([(NBTexture *)d surface])[self.commandBuffer.writtenSurfaces addObject:d];
+ // SweetMetal2 (vayu): with HOT_MTL2_LOG_REPLACE, each distinct GPU upload shape (buffer -> texture) once (at most 64).
+ static const bool logReplace=getenv("HOT_MTL2_LOG_REPLACE")!=nullptr;
+ if(logReplace) {
+  char line[220];
+  snprintf(line,sizeof line,"m2v bup f%lu %lux%lu s%d m%lu size %lux%lu row %lu nocopy %d",(unsigned long)d.pixelFormat,(unsigned long)d.width,
+      (unsigned long)d.height,[(NBTexture *)d surface]?1:0,(unsigned long)d.storageMode,(unsigned long)z.width,(unsigned long)z.height,(unsigned long)row,
+      [(NBBuffer *)s surfaceOwner]?2:0);
+  static std::mutex lock;static std::vector<std::string> seen;static std::atomic<int> calls{0};
+  std::lock_guard<std::mutex> g(lock);
+  std::string key(line);
+  if(seen.size()<64 && std::find(seen.begin(),seen.end(),key)==seen.end()){seen.push_back(key);
+   fprintf(stderr,"%s off %lu at %lu,%lu buf %lu (call %d)\n",line,(unsigned long)o,(unsigned long)dO.x,(unsigned long)dO.y,(unsigned long)s.length,calls.load());}
+  calls++;
+ }
  const uint64_t size[3]={z.width,z.height,z.depth},b[3]={dO.x,dO.y,dO.z};
  [self check:nmb_blit_buffer_to_texture(self.handle,[(NBBuffer *)s handle],o,row,image,size,[(NBTexture *)d handle],slice,level,b) what:"copyFromBuffer:toTexture:"];
 }
