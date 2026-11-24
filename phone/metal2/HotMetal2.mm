@@ -451,17 +451,17 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 		fprintf(stderr, "B3A8 %ux%u T%d draw%s: inside %u/%u wrong, outside %u/%u wrong (status %ld)\n", w, h, 6 + k, k ? " blend" : "", badIn,
 			sw * sh, badOut, n - sw * sh, (long)cb.status);
 	}
-	// T8 framebuffer fetch (fixture fetch_ordered: dst * 0.5) under a scissor, c0 alone; T9 the same in RenderBox's pass
-	// shape (log56: c1 f65 and c2 f550 memoryless, depth/stencil f260 memoryless). Inside: codes of d/2, outside kept.
+	// T8 framebuffer fetch (fixture exf_fetch_blend: (src + dst) / 2, src = (x + 0.5, y + 0.5, 1, -0.5)) under a scissor, c0 alone; T9 the same in RenderBox's pass
+	// shape (log56: c1 f65 and c2 f550 memoryless, depth/stencil f260 memoryless). Inside: those codes (alpha clamped to [0, 1]), outside kept.
 	for (int k = 0; k < 2 && h >= 3 && w >= 5; k++) {
 		static id<MTLLibrary> vlib, flib;
 		if (!vlib)
 			vlib = native_bridge_metal_library_with_air(k_rt6_samples_bc, sizeof(k_rt6_samples_bc));
 		if (!flib)
-			flib = native_bridge_metal_library_with_air(k_fragment_fetch_bc, sizeof(k_fragment_fetch_bc));
+			flib = native_bridge_metal_library_with_air(k_exf_fetch_blend_bc, sizeof(k_exf_fetch_blend_bc));
 		MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
 		pd.vertexFunction = [vlib newFunctionWithName:@"rt6_fill_vertex"];
-		pd.fragmentFunction = [flib newFunctionWithName:@"fetch_ordered"];
+		pd.fragmentFunction = [flib newFunctionWithName:@"exf_fetch_blend"];
 		pd.colorAttachments[0].pixelFormat = (MTLPixelFormat)550;
 		MTLRenderPassDescriptor *fp = [MTLRenderPassDescriptor renderPassDescriptor];
 		fp.colorAttachments[0].texture = tex;
@@ -520,9 +520,10 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 				const bool in = x >= sx && x < sx + sw && y >= sy && y < sy + sh;
 				const int cc[3] = { (int)((c >> 20) & 0x3ff), (int)((c >> 10) & 0x3ff), (int)(c & 0x3ff) };
 				int want[4];
+				const float src[4] = { x + 0.5f, y + 0.5f, 1.f, -0.5f };
 				for (int j = 0; j < 3; j++)
-					want[j] = in ? (int)lrintf(fminf(fmaxf(510 * (((cc[j] - 384) / 510.f) * 0.5f) + 384, 0), 1023)) : cc[j];
-				want[3] = in ? (int)lrintf(alpha(x, y) * 0.5f) : alpha(x, y);
+					want[j] = in ? (int)lrintf(fminf(fmaxf(510 * ((src[j] + (cc[j] - 384) / 510.f) * 0.5f) + 384, 0), 1023)) : cc[j];
+				want[3] = in ? (int)lrintf(fminf(fmaxf((src[3] + alpha(x, y) / 255.f) * 0.5f, 0), 1) * 255) : alpha(x, y);
 				const int g[4] = { (int)((got >> 20) & 0x3ff), (int)((got >> 10) & 0x3ff), (int)(got & 0x3ff), ga };
 				bool ok = true;
 				for (int j = 0; j < 4; j++)
