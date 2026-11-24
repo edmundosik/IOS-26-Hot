@@ -2241,6 +2241,22 @@ static uint64_t askAnswer(SEL cmd,NSUInteger arg);
   rowBytes=(uint64_t)IOSurfaceGetBytesPerRow(surface);
  }
  if(!rowBytes)return nil;
+ // SweetMetal2 (vayu): HOT_MTL2_LOG_SURFACES=1 prints each distinct IOSurface import once to stderr (at most 64), to find the
+ // surfaces whose text labels and keyboard keys sample as a smeared rectangle (log46: not UBWC, not the texture pool).
+ {
+  static const bool logSurfaces=getenv("HOT_MTL2_LOG_SURFACES")!=nullptr;
+  if(logSurfaces) {
+   const uint32_t fcc=(uint32_t)IOSurfaceGetPixelFormat(surface);
+   char line[200];
+   snprintf(line,sizeof line,"m2v surf f%lu '%c%c%c%c' %lux%lu row %llu bpe %zu planes %zu p%lu off %llu u%lx m%lu",(unsigned long)d.pixelFormat,
+       (char)(fcc>>24),(char)(fcc>>16),(char)(fcc>>8),(char)fcc,(unsigned long)d.width,(unsigned long)d.height,(unsigned long long)rowBytes,
+       IOSurfaceGetBytesPerElement(surface),planeCount,(unsigned long)plane,(unsigned long long)offset,(unsigned long)d.usage,(unsigned long)d.storageMode);
+   static std::mutex lock;static std::vector<std::string> seen;
+   std::lock_guard<std::mutex> g(lock);
+   std::string key(line);
+   if(seen.size()<64 && std::find(seen.begin(),seen.end(),key)==seen.end()){seen.push_back(key);fprintf(stderr,"%s\n",line);}
+  }
+ }
  NmbSurfacePlane sp={};
  sp.offset=offset;sp.bytes_per_row=rowBytes;sp.planar=planeCount>0;
  char matrixBuf[64]={};
