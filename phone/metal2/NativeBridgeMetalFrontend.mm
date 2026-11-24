@@ -2271,7 +2271,8 @@ static uint64_t askAnswer(SEL cmd,NSUInteger arg);
  char matrixBuf[64]={};
  // SweetMetal2 (vayu): HOT_MTL2_B3A8_PLAIN=1 reads a 'b3a8' surface's plane 0 as one-plane BGR10_XR (alpha 1, no plane-1 shadow).
  // Test: app text backing stores (b3a8 in backboardd, log47) sample smeared. Readable text on boxes = the two-plane shadow is at fault.
- static const bool b3a8Plain=getenv("HOT_MTL2_B3A8_PLAIN")!=nullptr;
+ // Value "1": every process; else only the process of that name (e.g. backboardd: plain reader, two-plane writers).
+ static const bool b3a8Plain=[]{const char *v=getenv("HOT_MTL2_B3A8_PLAIN");return v && (!strcmp(v,"1") || !strcmp(v,getprogname()));}();
  const bool plainXR=b3a8Plain && planeCount==2 && plane==0 && IOSurfaceGetPixelFormat(surface)==0x62336138u &&
                     (d.pixelFormat==(MTLPixelFormat)550 || d.pixelFormat==(MTLPixelFormat)551);
  if(planeCount==2 && !plainXR) {
