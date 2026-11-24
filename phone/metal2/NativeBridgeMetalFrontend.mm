@@ -461,6 +461,15 @@ static void flushSurfaces(NSMutableSet *surfaces) {
 }
 static NBTexture *textureOnBuffer(NBBuffer *buffer,MTLTextureDescriptor *d,NSUInteger offset,NSUInteger row,bool surface) {
  NmbTextureDescriptor descriptor;if(!buffer || !textureDescriptor(d,&descriptor))return nil;
+ if(getenv("HOT_MTL2_LOG_SURFACES")) {
+  char line[160];
+  snprintf(line,sizeof line,"m2v bufTex f%lu %lux%lu row %lu off %lu s%d u%lx",(unsigned long)d.pixelFormat,(unsigned long)d.width,(unsigned long)d.height,
+      (unsigned long)row,(unsigned long)offset,surface?1:0,(unsigned long)d.usage);
+  static std::mutex lock;static std::vector<std::string> seen;
+  std::lock_guard<std::mutex> g(lock);
+  std::string key(line);
+  if(seen.size()<64 && std::find(seen.begin(),seen.end(),key)==seen.end()){seen.push_back(key);fprintf(stderr,"%s\n",line);}
+ }
  NmbTexture *handle=nmb_texture_new_on_buffer(buffer.handle,&descriptor,offset,row,surface);
  if(!handle){NBLOG(@"native-metal: texture over buffer refused: %@",lastError());return nil;}
  NBTexture *texture=[NBTexture new];texture.handle=handle;nmb_texture_describe(handle,&descriptor);texture.descriptor=descriptor;
