@@ -256,6 +256,10 @@ static void texturePoolLimits(uint64_t *capBytes,size_t *capCount) {
  else{*capBytes=0;*capCount=0;}
 }
 static bool canPoolTextureDesc(const NmbTextureDescriptor &req) {
+ // SweetMetal2 (vayu): HOT_MTL2_NO_TEX_POOL=1 turns the render-target pool off, to test whether reuse causes the garbled text
+ // labels seen while the screen idles at 1 fps (log43/44: no GPU fault, no pool pressure).
+ static const bool off=getenv("HOT_MTL2_NO_TEX_POOL")!=nullptr;
+ if(off)return false;
  const char *prog=getprogname();
  if(!prog || (strcmp(prog,"backboardd")!=0 && strcmp(prog,"SpringBoard")!=0))return false;
  if(req.type!=MTLTextureType2D || req.depth!=1 || req.levels!=1 || req.samples!=1 || req.array_length!=1)return false;
