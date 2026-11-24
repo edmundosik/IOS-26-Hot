@@ -2269,7 +2269,12 @@ static uint64_t askAnswer(SEL cmd,NSUInteger arg);
  NmbSurfacePlane sp={};
  sp.offset=offset;sp.bytes_per_row=rowBytes;sp.planar=planeCount>0;
  char matrixBuf[64]={};
- if(planeCount==2) {
+ // SweetMetal2 (vayu): HOT_MTL2_B3A8_PLAIN=1 reads a 'b3a8' surface's plane 0 as one-plane BGR10_XR (alpha 1, no plane-1 shadow).
+ // Test: app text backing stores (b3a8 in backboardd, log47) sample smeared. Readable text on boxes = the two-plane shadow is at fault.
+ static const bool b3a8Plain=getenv("HOT_MTL2_B3A8_PLAIN")!=nullptr;
+ const bool plainXR=b3a8Plain && planeCount==2 && plane==0 && IOSurfaceGetPixelFormat(surface)==0x62336138u &&
+                    (d.pixelFormat==(MTLPixelFormat)550 || d.pixelFormat==(MTLPixelFormat)551);
+ if(planeCount==2 && !plainXR) {
   void *chromaBase=IOSurfaceGetBaseAddressOfPlane(surface,1);
   if(!chromaBase || (uintptr_t)chromaBase<(uintptr_t)rawBase)return nil;
   const size_t rawChroma=(uintptr_t)chromaBase-(uintptr_t)rawBase;
@@ -2291,6 +2296,7 @@ static uint64_t askAnswer(SEL cmd,NSUInteger arg);
  }
  NBBuffer *buffer=surfaceBuffer(surface,base,bytes);if(!buffer)return nil;
  NmbTextureDescriptor descriptor;if(!textureDescriptor(d,&descriptor))return nil;
+ if(plainXR)descriptor.format=d.pixelFormat==(MTLPixelFormat)551?555:554;
  NmbTexture *handle=nmb_texture_new_iosurface(buffer.handle,&descriptor,&sp);
  noteFormat((uint32_t)descriptor.format,handle!=nullptr);
  if(!handle){NBLOG(@"native-metal: texture over iosurface (plane %lu/%lu fmt %u ostype 0x%x) refused: %@",(unsigned long)plane,(unsigned long)planeCount,(unsigned)descriptor.format,(unsigned)IOSurfaceGetPixelFormat(surface),lastError());return nil;}
