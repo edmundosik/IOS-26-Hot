@@ -216,9 +216,15 @@ static NBBuffer *surfaceBuffer(IOSurfaceRef surface,void *base,size_t bytes) {
  }
  return buffer;
 }
+// SweetMetal2 (vayu): HOT_MTL2_NARROW_SCRATCH=1 makes memoryless RGBA16Float textures RGBA8Unorm, and pipelines' color attachments 1-7
+// with RGBA16Float RGBA8Unorm to match. backboardd's passes all carry such a never-stored scratch attachment at index 1 (log41); in GMEM it
+// takes 8 of every 12 bytes per pixel, so full-screen passes run in 36 bins instead of ~12. Experiment: costs precision outside [0,1].
+static bool narrowScratch() {static const bool on=getenv("HOT_MTL2_NARROW_SCRATCH")!=nullptr;return on;}
 static bool textureDescriptor(MTLTextureDescriptor *d,NmbTextureDescriptor *out) {
  if(!d)return false;
- *out={(uint64_t)d.textureType,(uint64_t)d.pixelFormat,d.width,d.height,d.depth,d.mipmapLevelCount,d.sampleCount,d.arrayLength,(uint64_t)d.usage,(uint64_t)d.resourceOptions};
+ MTLPixelFormat format=d.pixelFormat;
+ if(narrowScratch() && format==MTLPixelFormatRGBA16Float && d.storageMode==MTLStorageModeMemoryless)format=MTLPixelFormatRGBA8Unorm;
+ *out={(uint64_t)d.textureType,(uint64_t)format,d.width,d.height,d.depth,d.mipmapLevelCount,d.sampleCount,d.arrayLength,(uint64_t)d.usage,(uint64_t)d.resourceOptions};
  return true;
 }
 static uint64_t sweetTexelBytes(MTLPixelFormat f);
@@ -1735,7 +1741,9 @@ static bool renderDescriptor(MTLRenderPipelineDescriptor *d,BuiltRenderDescripto
  p->vertex=[(NBFunction *)d.vertexFunction handle];p->fragment=d.fragmentFunction?[(NBFunction *)d.fragmentFunction handle]:nullptr;
  for(unsigned i=0;i<8;i++) {
   MTLRenderPipelineColorAttachmentDescriptor *a=d.colorAttachments[i];
-  p->colors[i]={(uint64_t)a.pixelFormat,(uint64_t)a.writeMask,(uint64_t)a.blendingEnabled,(uint64_t)a.sourceRGBBlendFactor,(uint64_t)a.destinationRGBBlendFactor,
+  MTLPixelFormat format=a.pixelFormat;
+  if(i>=1 && format==MTLPixelFormatRGBA16Float && narrowScratch())format=MTLPixelFormatRGBA8Unorm;
+  p->colors[i]={(uint64_t)format,(uint64_t)a.writeMask,(uint64_t)a.blendingEnabled,(uint64_t)a.sourceRGBBlendFactor,(uint64_t)a.destinationRGBBlendFactor,
       (uint64_t)a.rgbBlendOperation,(uint64_t)a.sourceAlphaBlendFactor,(uint64_t)a.destinationAlphaBlendFactor,(uint64_t)a.alphaBlendOperation};
  }
  p->depth_format=d.depthAttachmentPixelFormat;p->stencil_format=d.stencilAttachmentPixelFormat;p->samples=d.rasterSampleCount;
