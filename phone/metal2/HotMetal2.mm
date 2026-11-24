@@ -176,6 +176,143 @@ static bool listed(void)
 	return yes;
 }
 
+
+/*
+ * SweetMetal2 (vayu): HOT_MTL2_SELFTEST_B3A8=1 (mtl2-env) makes backboardd test a 'b3a8' IOSurface (RGB10A8_2P_XR10, color plane +
+ * alpha plane) through the runtime 20 s after boot, on known bytes: T1 blit to a buffer (copy in, color), T2 a load/store pass
+ * (copy in + copy back, both planes), T3 a clear pass (copy back). App text is drawn into such surfaces and samples smeared on
+ * the A640 while lavapipe matches Metal. Lines "B3A8 ..." on stderr.
+ */
+#include <IOSurface/IOSurfaceRef.h>
+static void b3a8_num(CFMutableDictionaryRef d, CFStringRef k, long long v)
+{
+	CFNumberRef n = CFNumberCreate(NULL, kCFNumberLongLongType, &v);
+	CFDictionarySetValue(d, k, n);
+	CFRelease(n);
+}
+static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
+{
+	const uint32_t r0 = (4 * w + 63) & ~63u, r1 = (w + 63) & ~63u;
+	const uint32_t s0 = r0 * h, o1 = (s0 + 4095) & ~4095u, s1 = r1 * h, total = (o1 + s1 + 4095) & ~4095u;
+	CFMutableDictionaryRef props = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	b3a8_num(props, CFSTR("IOSurfaceWidth"), w);
+	b3a8_num(props, CFSTR("IOSurfaceHeight"), h);
+	b3a8_num(props, CFSTR("IOSurfacePixelFormat"), 0x62336138);
+	b3a8_num(props, CFSTR("IOSurfaceAllocSize"), total);
+	CFMutableArrayRef planes = CFArrayCreateMutable(NULL, 2, &kCFTypeArrayCallBacks);
+	const uint32_t bpe[2] = { 4, 1 }, row[2] = { r0, r1 }, off[2] = { 0, o1 }, size[2] = { s0, s1 };
+	for (int i = 0; i < 2; i++) {
+		CFMutableDictionaryRef pl = CFDictionaryCreateMutable(NULL, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+		b3a8_num(pl, CFSTR("IOSurfacePlaneWidth"), w);
+		b3a8_num(pl, CFSTR("IOSurfacePlaneHeight"), h);
+		b3a8_num(pl, CFSTR("IOSurfacePlaneBytesPerElement"), bpe[i]);
+		b3a8_num(pl, CFSTR("IOSurfacePlaneBytesPerRow"), row[i]);
+		b3a8_num(pl, CFSTR("IOSurfacePlaneOffset"), off[i]);
+		b3a8_num(pl, CFSTR("IOSurfacePlaneSize"), size[i]);
+		CFArrayAppendValue(planes, pl);
+		CFRelease(pl);
+	}
+	CFDictionarySetValue(props, CFSTR("IOSurfacePlaneInfo"), planes);
+	CFRelease(planes);
+	IOSurfaceRef surf = IOSurfaceCreate(props);
+	CFRelease(props);
+	if (!surf) {
+		fprintf(stderr, "B3A8 %ux%u: IOSurfaceCreate failed\n", w, h);
+		return;
+	}
+	IOSurfaceLock(surf, 0, NULL);
+	uint8_t *p0 = (uint8_t *)IOSurfaceGetBaseAddressOfPlane(surf, 0), *p1 = (uint8_t *)IOSurfaceGetBaseAddressOfPlane(surf, 1);
+	const size_t br0 = IOSurfaceGetBytesPerRowOfPlane(surf, 0), br1 = IOSurfaceGetBytesPerRowOfPlane(surf, 1);
+	fprintf(stderr, "B3A8 %ux%u: planes %zu, p0 +%td row %zu, p1 +%td row %zu, alloc %zu\n", w, h, IOSurfaceGetPlaneCount(surf),
+		p0 - (uint8_t *)IOSurfaceGetBaseAddress(surf), br0, p1 - (uint8_t *)IOSurfaceGetBaseAddress(surf), br1, IOSurfaceGetAllocSize(surf));
+	auto word = [](uint32_t x, uint32_t y) -> uint32_t {
+		return ((x * 7 + y * 13 + 100) & 0x3ff) | (((x * 3 + 400) & 0x3ff) << 10) | (((y * 5 + x + 200) & 0x3ff) << 20);
+	};
+	auto alpha = [](uint32_t x, uint32_t y) -> uint8_t { return (uint8_t)(x * 4 + y * 9 + 1); };
+	auto fill = [&] {
+		memset(IOSurfaceGetBaseAddress(surf), 0xEE, IOSurfaceGetAllocSize(surf));
+		for (uint32_t y = 0; y < h; y++)
+			for (uint32_t x = 0; x < w; x++) {
+				((uint32_t *)(p0 + y * br0))[x] = word(x, y);
+				p1[y * br1 + x] = alpha(x, y);
+			}
+		sys_dcache_flush(IOSurfaceGetBaseAddress(surf), IOSurfaceGetAllocSize(surf));
+	};
+	// Compares the planes with the pattern (or a clear's constant words): counts and the first differences.
+	auto check = [&](const char *what, bool cleared, uint32_t cw, uint8_t ca) {
+		sys_dcache_flush(IOSurfaceGetBaseAddress(surf), IOSurfaceGetAllocSize(surf));
+		unsigned bad0 = 0, bad1 = 0, shown = 0;
+		if (cleared)
+			cw = ((uint32_t *)p0)[0];
+		for (uint32_t y = 0; y < h; y++)
+			for (uint32_t x = 0; x < w; x++) {
+				uint32_t got = ((uint32_t *)(p0 + y * br0))[x] & 0x3fffffff, want = cleared ? (cw & 0x3fffffff) : word(x, y);
+				uint8_t ga = p1[y * br1 + x], wa = cleared ? ca : alpha(x, y);
+				if (got != want)
+					bad0++;
+				if (ga != wa)
+					bad1++;
+				if ((got != want || ga != wa) && shown < 4) {
+					shown++;
+					fprintf(stderr, "B3A8 %ux%u %s: (%u,%u) word %08x want %08x, alpha %02x want %02x\n", w, h, what, x, y, got, want, ga, wa);
+				}
+			}
+		fprintf(stderr, "B3A8 %ux%u %s: color %u/%u wrong, alpha %u/%u wrong%s first word %08x\n", w, h, what, bad0, w * h, bad1, w * h,
+			cleared ? "," : "", ((uint32_t *)p0)[0]);
+	};
+	IOSurfaceUnlock(surf, 0, NULL);
+	MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:(MTLPixelFormat)550 width:w height:h mipmapped:NO];
+	td.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
+	td.storageMode = MTLStorageModeShared;
+	id<MTLTexture> tex = [dev newTextureWithDescriptor:td iosurface:surf plane:0];
+	id<MTLCommandQueue> q = [dev newCommandQueue];
+	if (!tex || !q) {
+		fprintf(stderr, "B3A8 %ux%u: texture %p queue %p\n", w, h, tex, q);
+		CFRelease(surf);
+		return;
+	}
+	// T1: blit to a buffer (the texture's color words through its shadow's copy in).
+	fill();
+	id<MTLBuffer> buf = [dev newBufferWithLength:(NSUInteger)4 * w * h options:MTLResourceStorageModeShared];
+	id<MTLCommandBuffer> cb = [q commandBuffer];
+	id<MTLBlitCommandEncoder> bl = [cb blitCommandEncoder];
+	[bl copyFromTexture:tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1)
+		   toBuffer:buf destinationOffset:0 destinationBytesPerRow:4 * w destinationBytesPerImage:4 * w * h];
+	[bl endEncoding];
+	[cb commit];
+	[cb waitUntilCompleted];
+	{
+		const uint32_t *b = (const uint32_t *)buf.contents;
+		unsigned bad = 0, shown = 0;
+		for (uint32_t y = 0; y < h; y++)
+			for (uint32_t x = 0; x < w; x++)
+				if (b[y * w + x] != word(x, y) && ++bad && shown++ < 4)
+					fprintf(stderr, "B3A8 %ux%u T1: (%u,%u) %08x want %08x\n", w, h, x, y, b[y * w + x], word(x, y));
+		fprintf(stderr, "B3A8 %ux%u T1 blit->buffer: %u/%u wrong (status %ld)\n", w, h, bad, w * h, (long)cb.status);
+	}
+	// T2: a pass that loads and stores, no draws: copy in, then copy back.
+	fill();
+	MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+	rp.colorAttachments[0].texture = tex;
+	rp.colorAttachments[0].loadAction = MTLLoadActionLoad;
+	rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+	cb = [q commandBuffer];
+	[[cb renderCommandEncoderWithDescriptor:rp] endEncoding];
+	[cb commit];
+	[cb waitUntilCompleted];
+	check("T2 load/store", false, 0, 0);
+	// T3: a clear pass (0.5, 0.25, 0.75, 0.6): copy back only; alpha 153 everywhere.
+	fill();
+	rp.colorAttachments[0].loadAction = MTLLoadActionClear;
+	rp.colorAttachments[0].clearColor = MTLClearColorMake(0.5, 0.25, 0.75, 0.6);
+	cb = [q commandBuffer];
+	[[cb renderCommandEncoderWithDescriptor:rp] endEncoding];
+	[cb commit];
+	[cb waitUntilCompleted];
+	check("T3 clear", true, 0, 153);
+	CFRelease(surf);
+}
+
 @interface _MTLDevice : NSObject
 @end
 
@@ -284,6 +421,16 @@ static bool listed(void)
 			dladdr(vk, &tu);
 		sm2_log("images: HotMetal2 %p, libvulkan_freedreno %p", self.dli_fbase, tu.dli_fbase);
 		/* backboardd: idle background shader priming (+90 s, QOS_CLASS_BACKGROUND) + optional 10 s telemetry */
+		if (device && !strcmp(getprogname(), "backboardd") && getenv("HOT_MTL2_SELFTEST_B3A8")) {
+			id<MTLDevice> d = (id<MTLDevice>)device;
+			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC), dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+				@autoreleasepool {
+					const uint32_t sizes[][2] = { { 64, 8 }, { 37, 5 }, { 1024, 256 } };
+					for (auto &z : sizes)
+						b3a8_test(d, z[0], z[1]);
+				}
+			});
+		}
 		if (device && !strcmp(getprogname(), "backboardd")) {
 			hot_prime_shaders_start((id<MTLDevice>)device, "/var/local/mtl2-primelist", 90);
 			dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
