@@ -2254,20 +2254,26 @@ static void b3a8DumpOnce(IOSurfaceRef surface,int snap) {
  std::string s;s.reserve(zlen*4/3+4);
  for(size_t i=0;i<zlen;i+=3){uint32_t v=z[i]<<16|(i+1<zlen?z[i+1]<<8:0)|(i+2<zlen?z[i+2]:0);
   s+=b64[v>>18&63];s+=b64[v>>12&63];s+=i+1<zlen?b64[v>>6&63]:'=';s+=i+2<zlen?b64[v&63]:'=';}
- fprintf(stderr,"B3D %u %d %zu %zu %zu %lu seed %u\n",id,snap,w,h,raw.size(),(unsigned long)zlen,seed);
+ fprintf(stderr,"B3D %u %d %zu %zu %zu %lu seed %u rows %zu %zu p1 +%td alloc %zu\n",id,snap,w,h,raw.size(),(unsigned long)zlen,seed,r0,r1,p1-p0,
+  IOSurfaceGetAllocSize(surface));
  for(size_t i=0,k=0;i<s.size();i+=160,k++)fprintf(stderr,"B3Z %u %d %zu %s\n",id,snap,k,s.substr(i,160).c_str());
  fflush(stderr);
 }
 static void b3a8MaybeDump(IOSurfaceRef surface) {
  static const int want=[]{const char *v=getenv("HOT_MTL2_B3A8_DUMP");return v?atoi(v):0;}();
- if(!want || IOSurfaceGetPixelFormat(surface)!=0x62336138u || IOSurfaceGetPlaneCount(surface)!=2 || IOSurfaceGetWidthOfPlane(surface,0)<256)return;
+ // HOT_MTL2_B3A8_DUMP_SMALL=1: backboardd only, text-sized surfaces (w >= 64, h <= 160, e.g. app labels) instead of w >= 256; one snapshot.
+ static const bool small=getenv("HOT_MTL2_B3A8_DUMP_SMALL") && !strcmp(getprogname(),"backboardd");
+ if(!want || IOSurfaceGetPixelFormat(surface)!=0x62336138u || IOSurfaceGetPlaneCount(surface)!=2)return;
+ const size_t sw=IOSurfaceGetWidthOfPlane(surface,0),sh=IOSurfaceGetHeightOfPlane(surface,0);
+ if(small ? (sw<64 || sh>160) : (getenv("HOT_MTL2_B3A8_DUMP_SMALL") || sw<256))return;
  static std::mutex lock;static std::vector<uint32_t> seen;
  {std::lock_guard<std::mutex> g(lock);const uint32_t id=IOSurfaceGetID(surface);
   if((int)seen.size()>=want || std::find(seen.begin(),seen.end(),id)!=seen.end())return;seen.push_back(id);}
  CFRetain(surface);
- for(int snap=0;snap<2;snap++)
+ const int last=small?0:1;
+ for(int snap=0;snap<=last;snap++)
   dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(25+snap)*NSEC_PER_SEC),dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
-   b3a8DumpOnce(surface,snap);if(snap==1)CFRelease(surface);});
+   b3a8DumpOnce(surface,snap);if(snap==last)CFRelease(surface);});
 }
 - (id<MTLTexture>)newTextureWithDescriptor:(MTLTextureDescriptor *)d iosurface:(IOSurfaceRef)surface plane:(NSUInteger)plane {
  if(!surface || !d)return nil;
