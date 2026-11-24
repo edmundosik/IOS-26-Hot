@@ -185,6 +185,7 @@ static bool listed(void)
  */
 #include <IOSurface/IOSurfaceRef.h>
 #include <math.h>
+#include <vector>
 #include "B3A8SelfTestAIR.h"
 static void b3a8_num(CFMutableDictionaryRef d, CFStringRef k, long long v)
 {
@@ -268,6 +269,69 @@ static void la08_test(id<MTLDevice> dev, id<MTLCommandQueue> q, uint32_t fcc, ui
 	fprintf(stderr, "T11 %c%c%c%c %ux%u row %zu: %u/%u wrong, first bad row %u (status %ld)\n", fcc >> 24, fcc >> 16 & 255, fcc >> 8 & 255,
 		fcc & 255, w, h, br, bad, n, firstBadRow, (long)cb.status);
 	CFRelease(surf);
+}
+/*
+ * SweetMetal2 (vayu): T12, a CPU upload (replaceRegion) of a sub-rectangle at a padded row into a plain texture (as CA uploads small
+ * layer images), read through a kernel: inside byte 0 = local x, byte 1 = local y; outside the zeros of a first full upload.
+ */
+static void upload_test(id<MTLDevice> dev, id<MTLCommandQueue> q, MTLPixelFormat pf, uint32_t bpe, uint32_t w, uint32_t h, uint32_t rx, uint32_t ry,
+			uint32_t rw, uint32_t rh, uint32_t pad)
+{
+	MTLTextureDescriptor *td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:pf width:w height:h mipmapped:NO];
+	td.usage = MTLTextureUsageShaderRead;
+	td.storageMode = MTLStorageModeShared;
+	id<MTLTexture> tex = [dev newTextureWithDescriptor:td];
+	std::vector<uint8_t> zero((size_t)w * h * bpe, 0);
+	[tex replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:zero.data() bytesPerRow:w * bpe];
+	const uint32_t row = rw * bpe + pad;
+	std::vector<uint8_t> src((size_t)row * rh, 0xEE);
+	for (uint32_t y = 0; y < rh; y++)
+		for (uint32_t x = 0; x < rw; x++) {
+			uint8_t *t = &src[(size_t)y * row + x * bpe];
+			t[0] = (uint8_t)x;
+			if (bpe > 1)
+				t[1] = (uint8_t)y;
+			if (bpe > 2)
+				t[2] = 7, t[3] = 255;
+		}
+	[tex replaceRegion:MTLRegionMake2D(rx, ry, rw, rh) mipmapLevel:0 withBytes:src.data() bytesPerRow:row];
+	static id<MTLLibrary> lib;
+	if (!lib)
+		lib = native_bridge_metal_library_with_air(k_xr_two_planes_bc, sizeof(k_xr_two_planes_bc));
+	id<MTLFunction> fn = [lib newFunctionWithName:@"xr2p_read_float"];
+	id<MTLComputePipelineState> ps = fn ? [dev newComputePipelineStateWithFunction:fn error:nil] : nil;
+	const uint32_t n = w * h;
+	id<MTLBuffer> out = [dev newBufferWithLength:(NSUInteger)16 * n options:MTLResourceStorageModeShared];
+	if (!tex || !ps || !out) {
+		fprintf(stderr, "T12 f%lu: texture %p pipeline %p\n", (unsigned long)pf, tex, ps);
+		return;
+	}
+	id<MTLCommandBuffer> cb = [q commandBuffer];
+	id<MTLComputeCommandEncoder> ce = [cb computeCommandEncoder];
+	[ce setComputePipelineState:ps];
+	[ce setTexture:tex atIndex:0];
+	[ce setBuffer:out offset:0 atIndex:0];
+	[ce setBytes:&w length:4 atIndex:1];
+	[ce dispatchThreads:MTLSizeMake(w, h, 1) threadsPerThreadgroup:MTLSizeMake(32, 32, 1)];
+	[ce endEncoding];
+	[cb commit];
+	[cb waitUntilCompleted];
+	const float *o = (const float *)out.contents;
+	unsigned badIn = 0, badOut = 0, shown = 0;
+	for (uint32_t i = 0; i < n; i++) {
+		const uint32_t x = i % w, y = i / w;
+		const bool in = x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+		// BGRA8 reads byte 0 as blue (channel 2), byte 1 as green.
+		const int c0 = (int)lrintf(o[4 * i + (bpe == 4 ? 2 : 0)] * 255), c1 = bpe > 1 ? (int)lrintf(o[4 * i + 1] * 255) : 0;
+		const int w0 = in ? (int)((x - rx) & 255) : 0, w1 = (in && bpe > 1) ? (int)((y - ry) & 255) : 0;
+		if (c0 != w0 || c1 != w1) {
+			in ? badIn++ : badOut++;
+			if (shown++ < 4)
+				fprintf(stderr, "T12 f%lu %ux%u: (%u,%u)%s read %d %d want %d %d\n", (unsigned long)pf, w, h, x, y, in ? " in" : " out", c0, c1, w0, w1);
+		}
+	}
+	fprintf(stderr, "T12 f%lu %ux%u region %u,%u %ux%u row %u: inside %u/%u wrong, outside %u/%u wrong (status %ld)\n", (unsigned long)pf, w, h, rx, ry, rw,
+		rh, row, badIn, rw * rh, badOut, n - rw * rh, (long)cb.status);
 }
 static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 {
@@ -811,6 +875,11 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 								   { 0x4c303038, 240, 40, 256 } };
 					for (auto &z : la)
 						la08_test(d, q, z[0], z[1], z[2], z[3]);
+					upload_test(d, q, MTLPixelFormatRG8Unorm, 2, 300, 100, 13, 7, 150, 40, 52);
+					upload_test(d, q, MTLPixelFormatR8Unorm, 1, 300, 100, 13, 7, 151, 40, 9);
+					upload_test(d, q, MTLPixelFormatBGRA8Unorm, 4, 300, 100, 13, 7, 150, 40, 64);
+					upload_test(d, q, MTLPixelFormatRG8Unorm, 2, 1024, 512, 333, 101, 298, 37, 22);
+					upload_test(d, q, MTLPixelFormatBGRA8Unorm, 4, 1024, 512, 333, 101, 281, 37, 4);
 					for (auto &z : sizes)
 						b3a8_test(d, z[0], z[1]);
 				}

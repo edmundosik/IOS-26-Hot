@@ -423,6 +423,20 @@ NB_RESOURCE_SPI
   if(shown++<16)fprintf(stderr,"m2v replace f%lu %lux%lu at %lu,%lu %lux%lu row %lu\n",(unsigned long)self.pixelFormat,(unsigned long)self.width,(unsigned long)self.height,
      (unsigned long)r.origin.x,(unsigned long)r.origin.y,(unsigned long)r.size.width,(unsigned long)r.size.height,(unsigned long)row);
  }
+ // SweetMetal2 (vayu): HOT_MTL2_LOG_REPLACE=1, each distinct CPU upload shape (format, texture size, region size, row) once (at most 64), to find
+ // how app labels reach backboardd (not through IOSurface imports, log64).
+ static const bool logReplace=getenv("HOT_MTL2_LOG_REPLACE")!=nullptr;
+ if(logReplace) {
+  char line[200];
+  snprintf(line,sizeof line,"m2v up f%lu %lux%lu s%d m%lu region %lux%lu row %lu",(unsigned long)self.pixelFormat,(unsigned long)self.width,
+      (unsigned long)self.height,_surface?1:0,(unsigned long)self.storageMode,(unsigned long)r.size.width,(unsigned long)r.size.height,(unsigned long)row);
+  static std::mutex lock;static std::vector<std::string> seen;static std::atomic<int> calls{0};
+  std::lock_guard<std::mutex> g(lock);
+  std::string key(line);
+  if(seen.size()<64 && std::find(seen.begin(),seen.end(),key)==seen.end()){seen.push_back(key);
+   fprintf(stderr,"%s at %lu,%lu (call %d)\n",line,(unsigned long)r.origin.x,(unsigned long)r.origin.y,calls.load());}
+  calls++;
+ }
  if(!nmb_texture_replace(_handle,region,level,slice,bytes,row,image,length))NBLOG(@"native-metal: replaceRegion refused: %@",lastError());
 }
 - (void)replaceRegion:(MTLRegion)r mipmapLevel:(NSUInteger)level withBytes:(const void *)bytes bytesPerRow:(NSUInteger)row {
