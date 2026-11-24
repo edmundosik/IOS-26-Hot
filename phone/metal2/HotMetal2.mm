@@ -451,6 +451,67 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 		fprintf(stderr, "B3A8 %ux%u T%d draw%s: inside %u/%u wrong, outside %u/%u wrong (status %ld)\n", w, h, 6 + k, k ? " blend" : "", badIn,
 			sw * sh, badOut, n - sw * sh, (long)cb.status);
 	}
+	// T10 two textures over the one surface (as SpringBoard's icon atlas): A draws the left half, B the right, A the left again.
+	// All in one command buffer, so each texture's shadow is copied in before the other's draw is copied back: a copy back of a
+	// whole image puts the pattern back over the other texture's half.
+	if (h >= 3 && w >= 8) {
+		static id<MTLLibrary> lib;
+		if (!lib)
+			lib = native_bridge_metal_library_with_air(k_rt6_samples_bc, sizeof(k_rt6_samples_bc));
+		MTLRenderPipelineDescriptor *pd = [MTLRenderPipelineDescriptor new];
+		pd.vertexFunction = [lib newFunctionWithName:@"rt6_fill_vertex"];
+		pd.fragmentFunction = [lib newFunctionWithName:@"rt6_fill_rgba32float"];
+		pd.colorAttachments[0].pixelFormat = (MTLPixelFormat)550;
+		id<MTLRenderPipelineState> ps = (pd.vertexFunction && pd.fragmentFunction) ? [dev newRenderPipelineStateWithDescriptor:pd error:nil] : nil;
+		id<MTLTexture> tex2 = [dev newTextureWithDescriptor:td iosurface:surf plane:0];
+		const uint32_t n = w * h, half = w / 2;
+		id<MTLBuffer> vals = [dev newBufferWithLength:(NSUInteger)16 * n options:MTLResourceStorageModeShared];
+		float *v = (float *)vals.contents;
+		for (uint32_t i = 0; i < n; i++) {
+			v[4 * i] = ((i % w) % 7) / 10.f, v[4 * i + 1] = ((i / w) % 5) / 10.f, v[4 * i + 2] = 0.3f, v[4 * i + 3] = 0.8f;
+		}
+		const uint32_t shape[2] = { w, 1 };
+		fill();
+		cb = [q commandBuffer];
+		const struct { id<MTLTexture> t; uint32_t x0, x1; } steps[3] = { { tex, 0, half }, { tex2, half, w }, { tex, 0, half } };
+		for (int k = 0; ps && tex2 && k < 3; k++) {
+			MTLRenderPassDescriptor *rp2 = [MTLRenderPassDescriptor renderPassDescriptor];
+			rp2.colorAttachments[0].texture = steps[k].t;
+			rp2.colorAttachments[0].loadAction = MTLLoadActionLoad;
+			rp2.colorAttachments[0].storeAction = MTLStoreActionStore;
+			id<MTLRenderCommandEncoder> re = [cb renderCommandEncoderWithDescriptor:rp2];
+			[re setRenderPipelineState:ps];
+			[re setScissorRect:(MTLScissorRect){ steps[k].x0, 0, steps[k].x1 - steps[k].x0, h }];
+			[re setFragmentBuffer:vals offset:0 atIndex:0];
+			[re setFragmentBytes:shape length:8 atIndex:1];
+			[re drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
+			[re endEncoding];
+		}
+		[cb commit];
+		[cb waitUntilCompleted];
+		sys_dcache_flush(IOSurfaceGetBaseAddress(surf), IOSurfaceGetAllocSize(surf));
+		unsigned bad[2] = { 0, 0 }, shown = 0;
+		for (uint32_t y = 0; y < h; y++)
+			for (uint32_t x = 0; x < w; x++) {
+				const uint32_t i = y * w + x, got = ((uint32_t *)(p0 + y * br0))[x] & 0x3fffffff;
+				const int g[4] = { (int)((got >> 20) & 0x3ff), (int)((got >> 10) & 0x3ff), (int)(got & 0x3ff), p1[y * br1 + x] };
+				int want[4];
+				for (int j = 0; j < 3; j++)
+					want[j] = (int)lrintf(510 * v[4 * i + j] + 384);
+				want[3] = (int)lrintf(v[4 * i + 3] * 255);
+				bool ok = true;
+				for (int j = 0; j < 4; j++)
+					ok = ok && abs(g[j] - want[j]) <= 1;
+				if (!ok) {
+					bad[x >= half]++;
+					if (shown++ < 4)
+						fprintf(stderr, "B3A8 %ux%u T10: (%u,%u) got %d %d %d a%d want %d %d %d a%d\n", w, h, x, y, g[0], g[1], g[2], g[3], want[0],
+							want[1], want[2], want[3]);
+				}
+			}
+		fprintf(stderr, "B3A8 %ux%u T10 two textures: left %u/%u wrong, right (other texture's) %u/%u wrong (pipeline %p tex2 %p)\n", w, h, bad[0],
+			half * h, bad[1], (w - half) * h, ps, tex2);
+	}
 	// T8 framebuffer fetch (fixture exf_fetch_blend: (src + dst) / 2, src = (x + 0.5, y + 0.5, 1, -0.5)) under a scissor, c0 alone; T9 the same in RenderBox's pass
 	// shape (log56: c1 f65 and c2 f550 memoryless, depth/stencil f260 memoryless). Inside: those codes (alpha clamped to [0, 1]), outside kept.
 	for (int k = 0; k < 2 && h >= 3 && w >= 5; k++) {
