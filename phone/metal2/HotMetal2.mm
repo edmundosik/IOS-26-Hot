@@ -561,6 +561,19 @@ static void b3a8_test(id<MTLDevice> dev, uint32_t w, uint32_t h)
 		if (vk)
 			dladdr(vk, &tu);
 		sm2_log("images: HotMetal2 %p, libvulkan_freedreno %p", self.dli_fbase, tu.dli_fbase);
+		/* SweetMetal2 (vayu): HOT_MTL2_STDERR_CONSOLE=NAME (or 1: every process) sends this process's stderr to the console,
+		 * so apps' m2v logs (passes, surfaces) reach the kernel log as daemons' do. */
+		{
+			const char *v = getenv("HOT_MTL2_STDERR_CONSOLE");
+			if (v && (!strcmp(v, "1") || !strcmp(v, getprogname()))) {
+				int fd = open("/dev/console", O_WRONLY | O_NOCTTY);
+				if (fd >= 0) {
+					dup2(fd, 2);
+					close(fd);
+					fprintf(stderr, "|%s| stderr to console (pid %d)\n", getprogname(), getpid());
+				}
+			}
+		}
 		/* backboardd: idle background shader priming (+90 s, QOS_CLASS_BACKGROUND) + optional 10 s telemetry */
 		if (device && !strcmp(getprogname(), "backboardd") && getenv("HOT_MTL2_SELFTEST_B3A8")) {
 			id<MTLDevice> d = (id<MTLDevice>)device;

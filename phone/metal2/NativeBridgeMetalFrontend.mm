@@ -416,6 +416,12 @@ NB_RESOURCE_SPI
 - (void)replaceRegion:(MTLRegion)r mipmapLevel:(NSUInteger)level slice:(NSUInteger)slice withBytes:(const void *)bytes bytesPerRow:(NSUInteger)row bytesPerImage:(NSUInteger)image {
  const uint64_t region[6]={r.origin.x,r.origin.y,r.origin.z,r.size.width,r.size.height,r.size.depth};
  const uint64_t length=(r.size.depth>1?image*(r.size.depth-1):0)+row*r.size.height;
+ // SweetMetal2 (vayu): with HOT_MTL2_LOG_SURFACES, the first CPU writes of two-plane surface textures ('b3a8' labels).
+ if(_surface && IOSurfaceGetPlaneCount(_surface)==2 && getenv("HOT_MTL2_LOG_SURFACES")) {
+  static std::atomic<int> shown{0};
+  if(shown++<16)fprintf(stderr,"m2v replace f%lu %lux%lu at %lu,%lu %lux%lu row %lu\n",(unsigned long)self.pixelFormat,(unsigned long)self.width,(unsigned long)self.height,
+     (unsigned long)r.origin.x,(unsigned long)r.origin.y,(unsigned long)r.size.width,(unsigned long)r.size.height,(unsigned long)row);
+ }
  if(!nmb_texture_replace(_handle,region,level,slice,bytes,row,image,length))NBLOG(@"native-metal: replaceRegion refused: %@",lastError());
 }
 - (void)replaceRegion:(MTLRegion)r mipmapLevel:(NSUInteger)level withBytes:(const void *)bytes bytesPerRow:(NSUInteger)row {
