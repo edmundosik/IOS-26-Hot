@@ -455,6 +455,21 @@ NB_RESOURCE_SPI
 // owners keep the mapping live through this phase. Maintain each exact CPU
 // range once; no address identity or decision is carried into another phase
 // or command, and distinct/partially overlapping ranges retain their calls.
+// Mark imported surfaces in use while the GPU reads or writes them, as IOGPU
+// does, so CoreAnimation does not redraw a backing store mid-composite.
+static NSMutableSet *useSurfaces(NSMutableSet *items) {
+ NSMutableSet *used=[NSMutableSet set];
+ for(id item in items) {
+  IOSurfaceRef surface=[item isKindOfClass:[NBTexture class]]?[(NBTexture *)item surface]:
+                       ([item isKindOfClass:[NBBuffer class]]?[(NBBuffer *)item surfaceOwner]:nullptr);
+  if(surface && ![used containsObject:(__bridge id)surface]){[used addObject:(__bridge id)surface];IOSurfaceIncrementUseCount(surface);}
+ }
+ return used;
+}
+static void unuseSurfaces(NSMutableSet *used) {
+ for(id surface in used)IOSurfaceDecrementUseCount((__bridge IOSurfaceRef)surface);
+ [used removeAllObjects];
+}
 static void flushSurfaces(NSMutableSet *surfaces) {
  if(!surfaces.count)return;
  std::vector<std::pair<uintptr_t,size_t>> ranges;
@@ -885,6 +900,8 @@ static void notified(void *context,uint64_t value) {
 @property(nonatomic) uint32_t commitIndex;
 @property(nonatomic,strong) NSMutableArray *scheduledHandlers,*completedHandlers;
 @property(nonatomic,strong) NSMutableSet *surfaces,*writtenSurfaces;
+// IOSurfaces this command buffer holds in use (IOSurfaceIsInUse) from commit to completion.
+@property(nonatomic,strong) NSMutableSet *usedSurfaces;
 // Runtime handles retain GPU storage, but only the Objective-C owner retains
 // a no-copy deallocator, its memory owner and texture/heap ancestry.
 @property(nonatomic,strong) NSMutableSet *resourceOwners;
@@ -1531,6 +1548,7 @@ static void scheduled(void *context);
  // Actual GPU completion (or a local refusal that never submitted) is the
  // release point. A retained completed command must not pin every old frame.
  [_surfaces removeAllObjects];[_writtenSurfaces removeAllObjects];[_resourceOwners removeAllObjects];
+ unuseSurfaces(_usedSurfaces);
  @synchronized(gInFlight){[gInFlight removeObject:self];}
  NSArray *completedHandlers;
  @synchronized(self){
@@ -1561,6 +1579,7 @@ static void scheduled(void *context);
  @synchronized(gInFlight){[gInFlight addObject:self];}
  if(!self.encodeFailure) {
   flushSurfaces(_surfaces);
+  _usedSurfaces=useSurfaces(_surfaces);
   // Completion owns this reference; the runtime orders the non-owning scheduled callback before it.
   void *context=(__bridge_retained void *)self;
   if(nmb_command_buffer_on_completed(_handle,completed,context) &&

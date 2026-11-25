@@ -1,0 +1,116 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] vayu: real IOSurface use counts (0168)
+
+Traps 0/1 (IOSurfaceIncrementUseCount / DecrementUseCount) were no-ops, so
+IOSurfaceIsInUse was always false and apps redrew CA backing stores while
+backboardd was still compositing them (smeared or swapped text, half-drawn
+icons). Count per client and publish the total at state page +0x18, where
+iOS 26 IOSurfaceClientIsInUse reads it. A client that dies in use drops its
+share when its mapping goes away.
+---
+diff --git a/iokit/Kernel/arm/SweetSurface.cpp b/iokit/Kernel/arm/SweetSurface.cpp
+index 7bbbedf..f8acf71 100644
+--- a/iokit/Kernel/arm/SweetSurface.cpp
++++ b/iokit/Kernel/arm/SweetSurface.cpp
+@@ -456,6 +456,7 @@ public:
+ 	IOMemoryMap  *data;
+ 	IOMemoryMap  *state;
+ 	uint32_t      count;
++	uint32_t      uses;     /* use-count increments by this client, not yet dropped */
+ 
+ 	bool init() APPLE_KEXT_OVERRIDE { return OSObject::init(); }
+ 	void free() APPLE_KEXT_OVERRIDE;
+@@ -463,12 +464,31 @@ public:
+ 
+ OSDefineMetaClassAndStructors(SweetSurfaceRef, OSObject);
+ 
++/*
++ * Global use count, read by IOSurfaceIsInUse: iOS 26 IOSurfaceClientIsInUse
++ * tests the u64 at +0x18 of the page at client+0x78 (lock result +0x08 =
++ * our state page). CoreAnimation will not redraw a backing store that the
++ * render server still uses.
++ */
++#define SWEET_SURFACE_STATE_USE         0x18
++
++static void
++sweet_surface_use_add(SweetSurface *s, int64_t delta)
++{
++	OSAddAtomic64(delta, (volatile SInt64 *)((uint8_t *)s->state->getBytesNoCopy() +
++	    SWEET_SURFACE_STATE_USE));
++}
++
+ void
+ SweetSurfaceRef::free()
+ {
+ 	OSSafeReleaseNULL(data);
+ 	OSSafeReleaseNULL(state);
+ 	if (surface != NULL) {
++		if (uses != 0) {
++			sweet_surface_use_add(surface, -(int64_t)uses);  /* client died in use */
++			uses = 0;
++		}
+ 		sweet_surface_put(surface);
+ 		surface->release();
+ 		surface = NULL;
+@@ -520,6 +540,9 @@ public:
+ 	IOExternalTrap *getTargetAndTrapForIndex(IOService **targetP, UInt32 index) APPLE_KEXT_OVERRIDE;
+ 
+ 	IOReturn trapUseCount(void *id, void *category, void *, void *, void *, void *);
++	IOReturn trapIncrementUse(void *id, void *category, void *, void *, void *, void *);
++	IOReturn trapDecrementUse(void *id, void *category, void *, void *, void *, void *);
++	IOReturn useCount(uint32_t id, bool increment);
+ 	IOReturn trapLock(void *id, void *options, void *seedOut, void *, void *, void *);
+ 	IOReturn trapUnlock(void *id, void *options, void *seedOut, void *, void *, void *);
+ 	IOReturn trapRelease(void *id, void *, void *, void *, void *, void *);
+@@ -1075,6 +1098,40 @@ IOSurfaceRootUserClient::trapUseCount(__unused void *id, __unused void *category
+ 	return kIOReturnSuccess;
+ }
+ 
++IOReturn
++IOSurfaceRootUserClient::useCount(uint32_t id, bool increment)
++{
++	IOLockLock(fLock);
++	SweetSurfaceRef *ref = findRef(id, NULL);
++	if (ref == NULL) {
++		IOLockUnlock(fLock);
++		return kIOReturnNotFound;
++	}
++	if (increment) {
++		ref->uses++;
++		sweet_surface_use_add(ref->surface, 1);
++	} else if (ref->uses != 0) {
++		ref->uses--;
++		sweet_surface_use_add(ref->surface, -1);
++	}
++	IOLockUnlock(fLock);
++	return kIOReturnSuccess;
++}
++
++IOReturn
++IOSurfaceRootUserClient::trapIncrementUse(void *id, __unused void *category,
++    void *, void *, void *, void *)
++{
++	return useCount((uint32_t)(uintptr_t)id, true);
++}
++
++IOReturn
++IOSurfaceRootUserClient::trapDecrementUse(void *id, __unused void *category,
++    void *, void *, void *, void *)
++{
++	return useCount((uint32_t)(uintptr_t)id, false);
++}
++
+ static IOReturn
+ sweet_surface_seed_out(SweetSurface *s, void *seedOut, bool bump)
+ {
+@@ -1156,8 +1213,8 @@ IOSurfaceRootUserClient::trapRelease(void *id, void *, void *, void *, void *, v
+ }
+ 
+ static IOExternalTrap sweet_surface_traps[] = {
+-	[kSweetSurfaceTrapIncrementUse]  = { NULL, (IOTrap) & IOSurfaceRootUserClient::trapUseCount },
+-	[kSweetSurfaceTrapDecrementUse]  = { NULL, (IOTrap) & IOSurfaceRootUserClient::trapUseCount },
++	[kSweetSurfaceTrapIncrementUse]  = { NULL, (IOTrap) & IOSurfaceRootUserClient::trapIncrementUse },
++	[kSweetSurfaceTrapDecrementUse]  = { NULL, (IOTrap) & IOSurfaceRootUserClient::trapDecrementUse },
+ 	[kSweetSurfaceTrapLock]          = { NULL, (IOTrap) & IOSurfaceRootUserClient::trapLock },
+ 	[kSweetSurfaceTrapUnlock]        = { NULL, (IOTrap) & IOSurfaceRootUserClient::trapUnlock },
+ 	[kSweetSurfaceTrapRelease]       = { NULL, (IOTrap) & IOSurfaceRootUserClient::trapRelease },
