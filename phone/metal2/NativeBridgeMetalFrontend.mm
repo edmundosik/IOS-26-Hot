@@ -2394,6 +2394,20 @@ static uint64_t askAnswer(SEL cmd,NSUInteger arg);
  NBBuffer *buffer=[NBBuffer new];buffer.handle=handle;buffer.options=options;return (id<MTLBuffer>)buffer;
 }
 - (id<MTLBuffer>)newBufferWithBytesNoCopy:(void *)pointer length:(NSUInteger)length options:(MTLResourceOptions)options deallocator:(void (^)(void *,NSUInteger))deallocator {
+ // SweetMetal2 (vayu): HOT_MTL2_LOG_FRAMES=1 (backboardd): how the first 48 wrapped ranges are mapped. The GPU import pins these
+ // pages; a copy-on-write share (SM_COW) or a private copy would freeze what the GPU sees while the app keeps writing its own pages.
+ {
+  static const bool on=getenv("HOT_MTL2_LOG_FRAMES") && !strcmp(getprogname(),"backboardd");
+  static std::atomic<uint32_t> logged{0};
+  if(on && pointer && logged.fetch_add(1)<48) {
+   vm_address_t addr=(vm_address_t)(uintptr_t)pointer;vm_size_t size=0;mach_port_t obj=MACH_PORT_NULL;
+   vm_region_extended_info_data_t info={};mach_msg_type_number_t count=VM_REGION_EXTENDED_INFO_COUNT;
+   const kern_return_t kr=vm_region_64(mach_task_self(),&addr,&size,VM_REGION_EXTENDED_INFO,(vm_region_info_t)&info,&count,&obj);
+   if(obj!=MACH_PORT_NULL)mach_port_deallocate(mach_task_self(),obj);
+   fprintf(stderr,"m2v wrap %p len %lu kr %d region +%lu size %lu prot %d share %d refs %u tag %u dealloc %d\n",pointer,(unsigned long)length,kr,
+           (unsigned long)((uintptr_t)pointer-addr),(unsigned long)size,info.protection,info.share_mode,info.ref_count,info.user_tag,deallocator?1:0);
+  }
+ }
  NmbBuffer *handle=nmb_buffer_new_no_copy(gDevice,pointer,length,options);
  if(!handle){NBLOG(@"native-metal: no-copy buffer refused: %@",lastError());return nil;}
  NBBuffer *buffer=[NBBuffer new];buffer.handle=handle;buffer.options=options;
