@@ -17,6 +17,8 @@
 #include <pthread.h>
 #include <string>
 #include <tuple>
+extern "C" int proc_listallpids(void *buffer,int buffersize);
+extern "C" int proc_name(int pid,void *buffer,uint32_t buffersize);
 #include <unordered_map>
 #include <vector>
 #include <sys/mman.h>
@@ -526,6 +528,20 @@ static void logFrameSurfaces(NSMutableSet *items,NSMutableSet *written,uint32_t 
 static void wrapDump(NBTexture *t,NBBuffer *buffer) {
  static const int want=[]{const char *v=getenv("HOT_MTL2_WRAP_DUMP");return v && !strcmp(getprogname(),"backboardd")?atoi(v):0;}();
  if(!want)return;
+ // HOT_MTL2_WRAP_DUMP_PROC=name: start only once a process with that name runs (checked once a second), so the
+ // N slots are not used up by the lock screen and home screen before the app opens.
+ static const char *proc=getenv("HOT_MTL2_WRAP_DUMP_PROC");
+ static std::atomic<bool> procUp{false};static std::atomic<uint64_t> procChecked{0};
+ if(proc && *proc && !procUp) {
+  const uint64_t now=nowUs();
+  if(now-procChecked<1000000)return;
+  procChecked=now;
+  pid_t pids[2048];const int n=proc_listallpids(pids,sizeof(pids));
+  char name[64];
+  for(int i=0;i<n && !procUp;i++)if(proc_name(pids[i],name,sizeof(name))>0 && !strcmp(name,proc))procUp=true;
+  if(!procUp)return;
+  fprintf(stderr,"WRD start %s\n",proc);
+ }
  const size_t w=[(id<MTLTexture>)t width],h=[(id<MTLTexture>)t height];
  if(w<48 || h<16 || h>220)return;
  const MTLPixelFormat pf=[(id<MTLTexture>)t pixelFormat];
