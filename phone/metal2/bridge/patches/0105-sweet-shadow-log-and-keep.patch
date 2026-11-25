@@ -1,0 +1,132 @@
+diff --git a/crates/metal2vulkan-runtime/src/shadow.rs b/crates/metal2vulkan-runtime/src/shadow.rs
+index 4bfda8f4a..0f6e7a76d 100644
+--- a/crates/metal2vulkan-runtime/src/shadow.rs
++++ b/crates/metal2vulkan-runtime/src/shadow.rs
+@@ -1020,6 +1020,66 @@ fn bounding(a: Option<[u32; 4]>, b: Option<[u32; 4]>) -> Option<[u32; 4]> {
+     Some([a0.min(b0), a1.min(b1), a2.max(b2), a3.max(b3)])
+ }
+ 
++/// SweetMetal2 (vayu): HOT_MTL2_SHADOW_KEEP=1 keeps a shadow the GPU wrote current across encoders:
++/// its copy in is skipped while no copy back of another shadow (or a write the encoder saw) changed
++/// its truth's bytes since its image last matched them. CPU writes to such bytes are not seen.
++/// shortcut: process-global tables that never shrink and see no CPU writes; upgrade to per-buffer
++/// state with the buffer's CPU-access hooks if the A/B shows the copies matter.
++mod keep {
++    use super::{ResourceKey, ShadowCopies};
++    use std::collections::HashMap;
++    use std::sync::{Mutex, OnceLock};
++
++    #[derive(Default)]
++    struct State {
++        epochs: HashMap<ResourceKey, u64>,
++        synced: HashMap<ResourceKey, (u64, bool)>,
++    }
++    static STATE: Mutex<Option<State>> = Mutex::new(None);
++
++    pub(super) fn on() -> bool {
++        static ON: OnceLock<bool> = OnceLock::new();
++        *ON.get_or_init(|| std::env::var_os("HOT_MTL2_SHADOW_KEEP").is_some())
++    }
++
++    fn epoch(state: &State, copies: &ShadowCopies) -> u64 {
++        let truth = state.epochs.get(&copies.truth().0).copied().unwrap_or(0);
++        let alias = copies.alias().and_then(|key| state.epochs.get(&key).copied()).unwrap_or(0);
++        truth.wrapping_add(alias)
++    }
++
++    fn with<T>(f: impl FnOnce(&mut State) -> T) -> T {
++        let mut guard = STATE.lock().unwrap_or_else(|e| e.into_inner());
++        f(guard.get_or_insert_with(State::default))
++    }
++
++    /// The truth's bytes changed (a copy back, or another write the encoder saw).
++    pub(super) fn bump(copies: &ShadowCopies) {
++        with(|state| {
++            for key in [Some(copies.truth().0), copies.alias()].into_iter().flatten() {
++                *state.epochs.entry(key).or_insert(0) += 1;
++            }
++        });
++    }
++
++    /// The shadow's image now matches its truth; `written`: the GPU wrote it (a copy back).
++    pub(super) fn synced(copies: &ShadowCopies, written: bool) {
++        with(|state| {
++            let now = epoch(state, copies);
++            let entry = state.synced.entry(copies.shadow_key).or_insert((now, false));
++            *entry = (now, entry.1 || written);
++        });
++    }
++
++    /// Whether the GPU wrote the shadow and its image still matches its truth.
++    pub(super) fn current(copies: &ShadowCopies) -> bool {
++        with(|state| {
++            let now = epoch(state, copies);
++            matches!(state.synced.get(&copies.shadow_key), Some(&(at, true)) if at == now)
++        })
++    }
++}
++
+ /// The shadowed textures one encoder used, and the copies they need (the module's rules), `M`
+ /// the scratch of a merge.
+ pub(super) struct ShadowSync<M = Arc<ShadowMerge>> {
+@@ -1081,6 +1141,10 @@ impl<M: Clone> ShadowSync<M> {
+         entry.dirty = false;
+         entry.area = None;
+         let written = Arc::clone(&entry.copies);
++        if keep::on() {
++            keep::bump(&written);
++            keep::synced(&written, true);
++        }
+         copies.push(ShadowCopy {
+             copies: Arc::clone(&written),
+             step,
+@@ -1149,7 +1213,12 @@ impl<M: Clone> ShadowSync<M> {
+                     .iter()
+                     .any(|(copies, _)| copies.shadow_key == shadow.copies.shadow_key);
+             if !self.entries[i].current {
+-                if !overwrites {
++                if !overwrites && keep::on() && keep::current(&shadow.copies) {
++                    // The image already holds the bytes (HOT_MTL2_SHADOW_KEEP).
++                } else if !overwrites {
++                    if keep::on() {
++                        keep::synced(&shadow.copies, false);
++                    }
+                     copies.push(ShadowCopy {
+                         copies: Arc::clone(&shadow.copies),
+                         step: Step::Into,
+@@ -1184,6 +1253,9 @@ impl<M: Clone> ShadowSync<M> {
+                 .any(|used| !used.write.is_empty() && entry.copies.meets(used));
+             if stale {
+                 entry.current = false;
++                if keep::on() {
++                    keep::bump(&entry.copies);
++                }
+             }
+         }
+         for shadow in shadows.iter().filter(|shadow| shadow.writes) {
+diff --git a/crates/metal2vulkan-runtime/src/texture.rs b/crates/metal2vulkan-runtime/src/texture.rs
+index 071beb86d..3b46f416f 100644
+--- a/crates/metal2vulkan-runtime/src/texture.rs
++++ b/crates/metal2vulkan-runtime/src/texture.rs
+@@ -2301,6 +2301,21 @@ impl Device {
+             None
+         };
+         if let Some(why) = why {
++            // SweetMetal2 (vayu): HOT_MTL2_LOG_COUNTS, each distinct shape (at most 64) of a texture over a
++            // buffer that becomes a shadow (copied into an image before each encoder that uses it).
++            if std::env::var_os("HOT_MTL2_LOG_COUNTS").is_some() {
++                static SEEN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
++                let shape = format!(
++                    "m2v shadow {:?} {:?} host {} offset {} metal pitch {} image pitch {} align {} mem_off%4096 {}",
++                    plan.format, plan.extent, host, texels.layout.offset, texels.layout.row_pitch,
++                    report.row_pitch, requirements.alignment, memory_offset % 4096
++                );
++                let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
++                if seen.len() < 64 && !seen.contains(&shape) {
++                    eprintln!("{shape}");
++                    seen.push(shape);
++                }
++            }
+             // SAFETY: the image is live and unbound, and no command uses it.
+             unsafe { release::object(raw_device, raw) };
+             return Ok(Err(why));
