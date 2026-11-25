@@ -1,0 +1,101 @@
+vayu: measure the Adreno 640 core clock while busy (CP perf counter 0 per submit), logged every 5 s
+
+diff --git a/bsd/dev/sweet_a6xx.c b/bsd/dev/sweet_a6xx.c
+index 7cd2363..fc1a59a 100644
+--- a/bsd/dev/sweet_a6xx.c
++++ b/bsd/dev/sweet_a6xx.c
+@@ -755,7 +755,8 @@ uint32_t a6_submit_ibs_async(struct a6_gpu *g, const uint64_t *iova, const uint3
+ 	uint64_t fva = a6_pool_va(A6_OFF_SCRATCH);
+ 	/* GPU time of this submit: CP_ALWAYS_ON_COUNTER before the IBs and once they are idle (a6_submit_time) */
+ 	uint64_t ts = a6_pool_va(A6_OFF_SCRATCH + A6_TS_OFF) + 16ull * ((g->fence + 1) % A6_TS_SLOTS);
+-	uint32_t dw[4 + 4 + 4 * A6_SUBMIT_MAX + 5 + 5], n = 0;
++	uint64_t cyc = a6_pool_va(A6_OFF_SCRATCH + A6_CYC_OFF) + 16ull * ((g->fence + 1) % A6_TS_SLOTS);
++	uint32_t dw[4 + 4 + 4 + 4 * A6_SUBMIT_MAX + 5 + 4 + 5], n = 0;
+ 	if (nib == 0 || nib > A6_SUBMIT_MAX)
+ 		return 0;
+ 	dw[n++] = a6_pkt7(A6_CP_EVENT_WRITE, 1);
+@@ -766,6 +767,10 @@ uint32_t a6_submit_ibs_async(struct a6_gpu *g, const uint64_t *iova, const uint3
+ 	dw[n++] = 0x980 | 2u << 18;
+ 	dw[n++] = (uint32_t)ts;
+ 	dw[n++] = (uint32_t)(ts >> 32);
++	dw[n++] = a6_pkt7(0x3e, 3);		/* CP_REG_TO_MEM RBBM_PERFCTR_CP_0 (GPU core clocks), 2 dwords -> cyc */
++	dw[n++] = 0x400 | 2u << 18;
++	dw[n++] = (uint32_t)cyc;
++	dw[n++] = (uint32_t)(cyc >> 32);
+ 	for (unsigned i = 0; i < nib; i++) {
+ 		dw[n++] = a6_pkt7(A6_CP_INDIRECT_BUFFER, 3);
+ 		dw[n++] = (uint32_t)iova[i];
+@@ -777,6 +782,10 @@ uint32_t a6_submit_ibs_async(struct a6_gpu *g, const uint64_t *iova, const uint3
+ 	dw[n++] = 0x980 | 2u << 18;
+ 	dw[n++] = (uint32_t)(ts + 8);
+ 	dw[n++] = (uint32_t)((ts + 8) >> 32);
++	dw[n++] = a6_pkt7(0x3e, 3);		/* ... -> cyc + 8 */
++	dw[n++] = 0x400 | 2u << 18;
++	dw[n++] = (uint32_t)(cyc + 8);
++	dw[n++] = (uint32_t)((cyc + 8) >> 32);
+ 	dw[n++] = a6_pkt7(A6_CP_EVENT_WRITE, 4);
+ 	dw[n++] = 0x04;				/* CACHE_FLUSH_TS: the fence lands once the caches are clean */
+ 	dw[n++] = (uint32_t)fva;
+@@ -818,6 +827,13 @@ uint64_t a6_submit_time(const struct a6_gpu *g, uint32_t fence)
+ 	return t[1] > t[0] ? t[1] - t[0] : 0;
+ }
+ 
++uint64_t a6_submit_cycles(const struct a6_gpu *g, uint32_t fence)
++{
++	uint64_t t[2] = { 0, 0 };
++	a6_read(a6_pool_pa(g, A6_OFF_SCRATCH + A6_CYC_OFF) + 16ull * (fence % A6_TS_SLOTS), t, 16);
++	return t[1] > t[0] ? t[1] - t[0] : 0;
++}
++
+ uint64_t a6_timestamp(const struct a6_gpu *g)
+ {
+ 	(void)g;
+diff --git a/bsd/dev/sweet_a6xx.h b/bsd/dev/sweet_a6xx.h
+index b184d16..488f393 100644
+--- a/bsd/dev/sweet_a6xx.h
++++ b/bsd/dev/sweet_a6xx.h
+@@ -115,6 +115,9 @@ uint64_t a6_timestamp(const struct a6_gpu *g);
+ #define A6_TS_OFF	0x1000ull	/* in the scratch page: 16-byte slots by fence */
+ #define A6_TS_SLOTS	256u
+ uint64_t a6_submit_time(const struct a6_gpu *g, uint32_t fence);
++/* GPU core clocks (CP_PERFCTR_CP_SEL_0 = always count) over the same span: clock = cycles / ticks * 19.2 MHz */
++#define A6_CYC_OFF	0x2000ull	/* in the scratch page, after the A6_TS_OFF slots */
++uint64_t a6_submit_cycles(const struct a6_gpu *g, uint32_t fence);
+ 
+ /* 4K pages (AP=01, NC) at iova -> pa; tables from the arena. Then a6_tlb_flush. */
+ int a6_map(struct a6_gpu *g, uint64_t iova, uint64_t pa, uint64_t size);
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index 348a47c..8461b9e 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -343,7 +343,7 @@ static uint64_t gstat_abs;
+ static int gstat_pid[A6_TS_SLOTS];
+ static struct { int pid; uint32_t n; uint64_t busy; } gstat_own[GSTAT_OWNERS + 1];     /* last: everyone else */
+ static uint32_t gstat_n, gstat_missed;
+-static uint64_t gstat_busy, gstat_longest;
++static uint64_t gstat_busy, gstat_longest, gstat_cyc;
+ static uint64_t gstat_last_abs;
+ static uint32_t gstat_last_n, gstat_last_missed, gstat_last_pct;
+ static uint64_t gstat_last_busy_ms, gstat_last_longest_us, gstat_last_mean_us;
+@@ -378,6 +378,7 @@ gpu_stats_locked(void)
+ 		gstat_own[o].busy += t;
+ 		gstat_n++;
+ 		gstat_busy += t;
++		gstat_cyc += a6_submit_cycles(&gpu, gstat_next);
+ 		hud_busy += t;
+ 		if (t > gstat_longest) {
+ 			gstat_longest = t;
+@@ -423,9 +424,12 @@ gpu_stats_locked(void)
+ 		a6_log("5s: %u submits (%u missed), GPU busy %llu ms (%llu%%), longest %llu us, mean %llu us;%s\n",
+ 		    gstat_n, gstat_missed, gstat_busy / 19200, gstat_busy * 100 / 19200 / (ns / 1000000),
+ 		    gstat_longest * 10 / 192, gstat_busy * 10 / 192 / gstat_n, who);
++		/* measured core clock while busy: does the GMU perf vote (sweetgpufreq) reach the GPU? */
++		a6_log("5s: core clock %llu MHz (%llu Mcycles over %llu ms busy)\n",
++		    gstat_busy ? gstat_cyc * 192 / 10 / gstat_busy : 0, gstat_cyc / 1000000, gstat_busy / 19200);
+ 	}
+ 	gstat_n = gstat_missed = 0;
+-	gstat_busy = gstat_longest = 0;
++	gstat_busy = gstat_longest = gstat_cyc = 0;
+ 	bzero(gstat_own, sizeof(gstat_own));
+ 	gstat_abs = now;
+ }
