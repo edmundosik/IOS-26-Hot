@@ -481,6 +481,7 @@ static void unuseSurfaces(NSMutableSet *used) {
 // SweetMetal2 (vayu): HOT_MTL2_LOG_FRAMES=1 (backboardd) prints, per committed command buffer, the IOSurfaces it
 // uses as "id:seed" (w = GPU-written), skipping repeats of the previous line. A label whose seed is constant while
 // it flickers on screen is read wrong here; one whose seed changes every frame is being redrawn by its app.
+static void residencySurfaces(NSSet *sets,NSMutableSet *surfaces);
 static void logFrameSurfaces(NSMutableSet *items,NSMutableSet *written,uint32_t commit) {
  static const bool on=getenv("HOT_MTL2_LOG_FRAMES") && !strcmp(getprogname(),"backboardd");
  if(!on || !items.count)return;
@@ -922,6 +923,7 @@ static void notified(void *context,uint64_t value) {
 @interface NBQueue : NBObject
 @property(nonatomic) NmbQueue *handle;
 @property(atomic,strong) dispatch_queue_t completionQueue;   // SPI: where command buffers' handlers run (nil: the runtime's thread)
+@property(atomic,strong) NSMutableSet *residencySets;         // added to the queue: used by every command buffer
 @property(atomic) int backgroundTrackingPID;
 @property(atomic) BOOL skipRender;
 @property(atomic) BOOL executionEnabled;
@@ -945,6 +947,8 @@ static void notified(void *context,uint64_t value) {
 @property(nonatomic,strong) NSMutableSet *surfaces,*writtenSurfaces;
 // IOSurfaces this command buffer holds in use (IOSurfaceIsInUse) from commit to completion.
 @property(nonatomic,strong) NSMutableSet *usedSurfaces;
+// Residency sets used by this command buffer or its encoders (allocations reached through argument buffers).
+@property(nonatomic,strong) NSMutableSet *residencySets;
 // Runtime handles retain GPU storage, but only the Objective-C owner retains
 // a no-copy deallocator, its memory owner and texture/heap ancestry.
 @property(nonatomic,strong) NSMutableSet *resourceOwners;
@@ -953,6 +957,8 @@ static void notified(void *context,uint64_t value) {
 @property(nonatomic) BOOL schedulingDelivered;
 @property(nonatomic,strong) NSMutableDictionary *userDict;
 - (void)refuse:(NSString *)what;
+- (void)useResidencySet:(id)residencySet;
+- (void)useResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count;
 @end
 @interface NBEncoder : NBObject
 @property(nonatomic) NmbEncoder *handle;
@@ -989,8 +995,8 @@ static void waitForResource(id resource) {
 - (void)insertDebugSignpost:(NSString *)s {(void)s;}
 - (void)pushDebugGroup:(NSString *)s {(void)s;}
 - (void)popDebugGroup {}
-- (void)useResidencySet:(id)residencySet {(void)residencySet;}
-- (void)useResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {(void)residencySets;(void)count;}
+- (void)useResidencySet:(id)residencySet {[_commandBuffer useResidencySet:residencySet];}
+- (void)useResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {[_commandBuffer useResidencySets:residencySets count:count];}
 - (void)barrierAfterQueueStages:(NSUInteger)after beforeStages:(NSUInteger)before {(void)after;(void)before;}
 // Stage 0 compute, 1 vertex, 2 fragment (the bridge's numbering).
 - (void)buffer:(id<MTLBuffer>)buffer offset:(NSUInteger)offset index:(NSUInteger)index stage:(uint32_t)stage {
@@ -1443,10 +1449,15 @@ static void scheduled(void *context);
 // Debug groups and cache hints name work for tools and the driver's caches; they change nothing the GPU computes here.
 - (void)pushDebugGroup:(NSString *)name {(void)name;}
 - (void)popDebugGroup {}
-- (void)useResidencySet:(id)residencySet {(void)residencySet;}
-- (void)useResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {(void)residencySets;(void)count;}
-- (void)useInternalResidencySet:(id)residencySet {(void)residencySet;}
-- (void)useInternalResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {(void)residencySets;(void)count;}
+- (void)useResidencySet:(id)residencySet {
+ if(!residencySet)return;
+ @synchronized(self){if(!_residencySets)_residencySets=[NSMutableSet set];[_residencySets addObject:residencySet];}
+}
+- (void)useResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {
+ for(NSUInteger i=0;residencySets && i<count;i++)[self useResidencySet:residencySets[i]];
+}
+- (void)useInternalResidencySet:(id)residencySet {[self useResidencySet:residencySet];}
+- (void)useInternalResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {[self useResidencySets:residencySets count:count];}
 - (void)barrierAfterQueueStages:(NSUInteger)after beforeStages:(NSUInteger)before {(void)after;(void)before;}
 - (void)encodeCacheHintTag:(uint64_t)tag resourceGroups:(const id __unsafe_unretained [])groups count:(NSUInteger)count {(void)tag;(void)groups;(void)count;}
 - (void)encodeCacheHintFinalize:(uint64_t)tag resourceGroups:(const id __unsafe_unretained [])groups count:(NSUInteger)count {(void)tag;(void)groups;(void)count;}
@@ -1621,6 +1632,13 @@ static void scheduled(void *context);
  dispatch_group_enter(_schedulingHandlers);
  @synchronized(gInFlight){[gInFlight addObject:self];}
  if(!self.encodeFailure) {
+  {
+   NSMutableSet *sets=[NSMutableSet set];
+   @synchronized(self){if(_residencySets)[sets unionSet:_residencySets];}
+   NBQueue *q=self.queue;
+   if(q)@synchronized(q){if(q.residencySets)[sets unionSet:q.residencySets];}
+   if(sets.count)residencySurfaces(sets,_surfaces);
+  }
   flushSurfaces(_surfaces);
   logFrameSurfaces(_surfaces,_writtenSurfaces,self.commitIndex);
   _usedSurfaces=useSurfaces(_surfaces);
@@ -1707,14 +1725,21 @@ static void completed(void *context) {
 - (int)requestCounters:(id)counters withIndex:(unsigned)index {(void)counters;(void)index;return -1;}
 - (void)addPerfSampleHandler:(id)block {(void)block;}
 - (id<MTLCommandBuffer>)commandBufferWithDescriptor:(MTLCommandBufferDescriptor *)d {(void)d;return [self commandBuffer];}
-- (void)addResidencySet:(id)residencySet {(void)residencySet;}
-- (void)addResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {(void)residencySets;(void)count;}
-- (void)removeResidencySet:(id)residencySet {(void)residencySet;}
-- (void)removeResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {(void)residencySets;(void)count;}
-- (void)addInternalResidencySet:(id)residencySet {(void)residencySet;}
-- (void)addInternalResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {(void)residencySets;(void)count;}
-- (void)removeInternalResidencySet:(id)residencySet {(void)residencySet;}
-- (void)removeInternalResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {(void)residencySets;(void)count;}
+- (void)addResidencySet:(id)residencySet {
+ if(!residencySet)return;
+ @synchronized(self){if(!self.residencySets)self.residencySets=[NSMutableSet set];[self.residencySets addObject:residencySet];}
+}
+- (void)addResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {
+ for(NSUInteger i=0;residencySets && i<count;i++)[self addResidencySet:residencySets[i]];
+}
+- (void)removeResidencySet:(id)residencySet {if(residencySet)@synchronized(self){[self.residencySets removeObject:residencySet];}}
+- (void)removeResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {
+ for(NSUInteger i=0;residencySets && i<count;i++)[self removeResidencySet:residencySets[i]];
+}
+- (void)addInternalResidencySet:(id)residencySet {[self addResidencySet:residencySet];}
+- (void)addInternalResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {[self addResidencySets:residencySets count:count];}
+- (void)removeInternalResidencySet:(id)residencySet {[self removeResidencySet:residencySet];}
+- (void)removeInternalResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count {[self removeResidencySets:residencySets count:count];}
 @end
 
 // ---- the device ----
@@ -1986,6 +2011,21 @@ static bool renderDescriptor(MTLRenderPipelineDescriptor *d,BuiltRenderDescripto
 - (void)requestResidency {}
 - (void)endResidency {}
 @end
+// IOSurface-backed allocations in residency sets: the command buffer may read them through argument buffers
+// without ever binding them, so they need the same CPU cache clean (and use count) as bound surfaces.
+static void residencySurfaces(NSSet *sets,NSMutableSet *surfaces) {
+ size_t allocations=0,found=0;
+ for(id set in sets) {
+  if(![set isKindOfClass:[NBResidencySet class]])continue;
+  for(id a in [(NBResidencySet *)set allAllocations]) {
+   allocations++;
+   if(([a isKindOfClass:[NBTexture class]] && [(NBTexture *)a surface]) ||
+      ([a isKindOfClass:[NBBuffer class]] && [(NBBuffer *)a surfaceOwner])){[surfaces addObject:a];found++;}
+  }
+ }
+ static std::atomic<uint32_t> logged{0};
+ if(logged.fetch_add(1)<20)fprintf(stderr,"m2v rs sets %lu allocations %zu surfaces %zu\n",(unsigned long)sets.count,allocations,found);
+}
 
 struct BuiltComputeDescriptor {
  NmbComputePipelineDescriptor raw={};
