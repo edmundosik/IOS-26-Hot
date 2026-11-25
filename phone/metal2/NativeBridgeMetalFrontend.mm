@@ -2352,6 +2352,17 @@ static uint64_t askAnswer(SEL cmd,NSUInteger arg);
  uint64_t row=nmb_device_linear_bytes_per_row(gDevice,d.pixelFormat,d.width);
  if(row && row*d.height>length && length%d.height==0)row=length/d.height;
  if(!row || row*d.height>length){NBLOG(@"native-metal: newTextureWithBytesNoCopy: %lux%lu fmt %lu does not fit %lu bytes",(unsigned long)d.width,(unsigned long)d.height,(unsigned long)d.pixelFormat,(unsigned long)length);return nil;}
+ // SweetMetal2 (vayu): HOT_MTL2_LOG_FRAMES=1 prints the first 64 distinct shapes wrapped here (CA shared-memory layers in
+ // backboardd): the pitch the GPU samples with versus the length the caller gave (its own rows if it never asked our layout).
+ if(getenv("HOT_MTL2_LOG_FRAMES")) {
+  char line[200];
+  snprintf(line,sizeof line,"m2v nocopy f%lu %lux%lu len %lu row %llu need %llu dealloc %d",(unsigned long)d.pixelFormat,(unsigned long)d.width,
+      (unsigned long)d.height,(unsigned long)length,(unsigned long long)row,(unsigned long long)(row*d.height),deallocator?1:0);
+  static std::mutex lock;static std::vector<std::string> seen;
+  std::lock_guard<std::mutex> g(lock);
+  std::string key(line);
+  if(seen.size()<64 && std::find(seen.begin(),seen.end(),key)==seen.end()){seen.push_back(key);fprintf(stderr,"%s\n",line);}
+ }
  id<MTLBuffer> buffer=[(id<MTLDevice>)self newBufferWithBytesNoCopy:bytes length:(length+page-1)&~(page-1) options:MTLResourceStorageModeShared deallocator:deallocator];
  if(!buffer)return nil;
  return (id<MTLTexture>)textureOnBuffer((NBBuffer *)buffer,d,0,row,false);
