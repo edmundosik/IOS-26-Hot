@@ -200,7 +200,14 @@ static NBBuffer *surfaceBuffer(IOSurfaceRef surface,void *base,size_t bytes) {
  std::lock_guard<std::mutex> lock(gSurfaceImportLock);
  if(!gSurfaceImports)gSurfaceImports=[NSMapTable strongToWeakObjectsMapTable];
  NBBuffer *buffer=key?[gSurfaceImports objectForKey:key]:nil;
- if(buffer)return buffer;
+ if(buffer && buffer.surfaceOwner==surface)return buffer;
+ // Same id, address and size but another IOSurface: the old surface died, its id and
+ // address were reused. The old import maps the old pages; reusing it shows stale/other content.
+ if(buffer) {
+  static std::atomic<uint32_t> stale{0};
+  if(stale.fetch_add(1)<32)fprintf(stderr,"m2v stale import id %llu bytes %zu (%s)\n",(unsigned long long)value.identity,bytes,getprogname());
+  buffer=nil;
+ }
  NmbBuffer *handle=nmb_buffer_new_no_copy(gDevice,base,bytes,MTLResourceStorageModeShared);
  if(!handle){NBLOG(@"native-metal: surface import refused: %@",lastError());return nil;}
  buffer=[NBBuffer new];buffer.handle=handle;buffer.options=MTLResourceStorageModeShared;
