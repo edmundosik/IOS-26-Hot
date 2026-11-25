@@ -105,7 +105,7 @@ index 4bfda8f4a..0f6e7a76d 100644
          }
          for shadow in shadows.iter().filter(|shadow| shadow.writes) {
 diff --git a/crates/metal2vulkan-runtime/src/texture.rs b/crates/metal2vulkan-runtime/src/texture.rs
-index 071beb86d..2fb2b349d 100644
+index 071beb86d..24cf66310 100644
 --- a/crates/metal2vulkan-runtime/src/texture.rs
 +++ b/crates/metal2vulkan-runtime/src/texture.rs
 @@ -2038,6 +2038,22 @@ impl Device {
@@ -131,7 +131,45 @@ index 071beb86d..2fb2b349d 100644
          self.degrade(Degradation::ShadowedTexture, || {
              let format = descriptor.pixel_format;
              let [width, height, _] = layout.extent;
-@@ -2301,6 +2317,21 @@ impl Device {
+@@ -2249,8 +2265,27 @@ impl Device {
+         } else {
+             "the device"
+         };
++        // SweetMetal2 (vayu): HOT_MTL2_ALIAS_TAIL=1 lets a padded image's subresource reach into a no-copy
++        // buffer's tail past its last row (at most 2 pages: IOSurface's slack page), where Turnip's linear layout of
++        // 1125x2499 (rows not a multiple of 4) is longer than 2499 rows; log90: that frame's shadow was copied back
++        // ~2 G texels per 5 s. shortcut: checked against the tail's size only, and the rebind path still shadows;
++        // upgrade to a per-surface owned-bytes bound from the frontend if a buffer with data past its rows appears.
++        let tail = (host
++            && holds == Holds::Padding
++            && texels.layout.slices == 1
++            && std::env::var_os("HOT_MTL2_ALIAS_TAIL").is_some_and(|v| v == "1"))
++        .then(|| {
++            let (len, layout) = (texels.buffer.length(), texels.layout);
++            let rows_end = layout.offset + layout.row_pitch * layout.rows;
++            (len >= rows_end && len - rows_end <= 2 * 16384).then(|| BufferLayout {
++                rows: (len - layout.offset) / layout.row_pitch,
++                ..layout
++            })
++        })
++        .flatten();
++        let fit = tail.as_ref().unwrap_or(&texels.layout);
+         let made = if host {
+-            self.host_alias_unbound(&plan, &texels.layout, holds, facts)?
++            self.host_alias_unbound(&plan, fit, holds, facts)?
+         } else if let Some(LinearLack { format, features }) = linear_lack(&plan, facts) {
+             Err(
+                 LinearRefusal::Need(LinearNeed::Features { format, features })
+@@ -2286,7 +2321,7 @@ impl Device {
+             row_pitch: report.row_pitch,
+             array_pitch: report.array_pitch,
+         };
+-        let why = if !aliases(&texels.layout, holds, memory_offset, room, &image) {
++        let why = if !aliases(fit, holds, memory_offset, room, &image) {
+             Some(format!(
+                 "{who}'s linear image of the texture lays its texels out otherwise than Metal \
+                  at the texels' offset and row pitch, or holds other bytes than its texels \
+@@ -2301,6 +2336,21 @@ impl Device {
              None
          };
          if let Some(why) = why {
