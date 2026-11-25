@@ -106,6 +106,7 @@ SKIP_LABELS = {
     'com.apple.localspeechrecognition',
     'com.apple.siriinferenced',
     'com.apple.sirittsd',
+    'com.apple.bluetoothd',  # no BT driver: it exits every 10 s and CoreBluetooth callers wait forever
 }
 
 SKIP_PLISTS = {
@@ -144,6 +145,7 @@ SKIP_PLISTS = {
     'com.apple.localspeechrecognition.plist',
     'com.apple.siriinferenced.plist',
     'com.apple.sirittsd.plist',
+    'com.apple.bluetoothd.plist',
 }
 
 SKIP_PREFIXES = (
