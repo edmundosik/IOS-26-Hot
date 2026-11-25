@@ -529,7 +529,7 @@ static void wrapDump(NBTexture *t,NBBuffer *buffer) {
  static const int want=[]{const char *v=getenv("HOT_MTL2_WRAP_DUMP");return v && !strcmp(getprogname(),"backboardd")?atoi(v):0;}();
  if(!want)return;
  // HOT_MTL2_WRAP_DUMP_PROC=name: start only once a process with that name runs (checked once a second), so the
- // N slots are not used up by the lock screen and home screen before the app opens.
+ // N slots are not used up by the lock screen and home screen before the app opens (+6 s for its launch animation).
  static const char *proc=getenv("HOT_MTL2_WRAP_DUMP_PROC");
  static std::atomic<bool> procUp{false};static std::atomic<uint64_t> procChecked{0};
  if(proc && *proc && !procUp) {
@@ -540,8 +540,11 @@ static void wrapDump(NBTexture *t,NBBuffer *buffer) {
   char name[64];
   for(int i=0;i<n && !procUp;i++)if(proc_name(pids[i],name,sizeof(name))>0 && !strcmp(name,proc))procUp=true;
   if(!procUp)return;
-  fprintf(stderr,"WRD start %s\n",proc);
+  procChecked=now;
+  fprintf(stderr,"WRD found %s\n",proc);
  }
+ // Wait 6 s more so the launch animation (which still binds the home screen labels) is over.
+ if(proc && *proc && nowUs()-procChecked<6000000)return;
  const size_t w=[(id<MTLTexture>)t width],h=[(id<MTLTexture>)t height];
  if(w<48 || h<16 || h>220)return;
  const MTLPixelFormat pf=[(id<MTLTexture>)t pixelFormat];
