@@ -16,6 +16,7 @@
 #include <mutex>
 #include <pthread.h>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 #include <sys/mman.h>
@@ -476,6 +477,41 @@ static NSMutableSet *useSurfaces(NSMutableSet *items) {
 static void unuseSurfaces(NSMutableSet *used) {
  for(id surface in used)IOSurfaceDecrementUseCount((__bridge IOSurfaceRef)surface);
  [used removeAllObjects];
+}
+// SweetMetal2 (vayu): HOT_MTL2_LOG_FRAMES=1 (backboardd) prints, per committed command buffer, the IOSurfaces it
+// uses as "id:seed" (w = GPU-written), skipping repeats of the previous line. A label whose seed is constant while
+// it flickers on screen is read wrong here; one whose seed changes every frame is being redrawn by its app.
+static void logFrameSurfaces(NSMutableSet *items,NSMutableSet *written,uint32_t commit) {
+ static const bool on=getenv("HOT_MTL2_LOG_FRAMES") && !strcmp(getprogname(),"backboardd");
+ if(!on || !items.count)return;
+ static std::mutex lock;static std::string previous;static uint32_t lines=0;static std::vector<uint32_t> named;
+ std::vector<std::tuple<uint32_t,uint32_t,bool>> v;
+ for(id item in items) {
+  IOSurfaceRef surface=[item isKindOfClass:[NBTexture class]]?[(NBTexture *)item surface]:
+                       ([item isKindOfClass:[NBBuffer class]]?[(NBBuffer *)item surfaceOwner]:nullptr);
+  if(!surface)continue;
+  v.emplace_back(IOSurfaceGetID(surface),IOSurfaceGetSeed(surface),[written containsObject:item]);
+ }
+ std::sort(v.begin(),v.end());
+ std::string line;char buf[48];
+ for(auto &t:v){snprintf(buf,sizeof buf," %u:%u%s",std::get<0>(t),std::get<1>(t),std::get<2>(t)?"w":"");line+=buf;}
+ std::lock_guard<std::mutex> g(lock);
+ if(lines>=3000)return;
+ for(id item in items) {
+  IOSurfaceRef surface=[item isKindOfClass:[NBTexture class]]?[(NBTexture *)item surface]:
+                       ([item isKindOfClass:[NBBuffer class]]?[(NBBuffer *)item surfaceOwner]:nullptr);
+  if(!surface)continue;
+  const uint32_t sid=IOSurfaceGetID(surface);
+  if(std::find(named.begin(),named.end(),sid)!=named.end())continue;
+  named.push_back(sid);lines++;
+  const uint32_t f=(uint32_t)IOSurfaceGetPixelFormat(surface);
+  fprintf(stderr,"m2v fid %u '%c%c%c%c' %zux%zu planes %zu\n",sid,(char)(f>>24),(char)(f>>16),(char)(f>>8),(char)f,
+          IOSurfaceGetWidth(surface),IOSurfaceGetHeight(surface),IOSurfaceGetPlaneCount(surface));
+ }
+ if(line==previous)return;
+ previous=line;lines++;
+ if(line.size()>900)line.resize(900);
+ fprintf(stderr,"m2v fr %u%s\n",commit,line.c_str());
 }
 static void flushSurfaces(NSMutableSet *surfaces) {
  if(!surfaces.count)return;
@@ -1586,6 +1622,7 @@ static void scheduled(void *context);
  @synchronized(gInFlight){[gInFlight addObject:self];}
  if(!self.encodeFailure) {
   flushSurfaces(_surfaces);
+  logFrameSurfaces(_surfaces,_writtenSurfaces,self.commitIndex);
   _usedSurfaces=useSurfaces(_surfaces);
   // Completion owns this reference; the runtime orders the non-owning scheduled callback before it.
   void *context=(__bridge_retained void *)self;
