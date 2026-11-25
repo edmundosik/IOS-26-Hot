@@ -105,10 +105,33 @@ index 4bfda8f4a..0f6e7a76d 100644
          }
          for shadow in shadows.iter().filter(|shadow| shadow.writes) {
 diff --git a/crates/metal2vulkan-runtime/src/texture.rs b/crates/metal2vulkan-runtime/src/texture.rs
-index 071beb86d..3b46f416f 100644
+index 071beb86d..2fb2b349d 100644
 --- a/crates/metal2vulkan-runtime/src/texture.rs
 +++ b/crates/metal2vulkan-runtime/src/texture.rs
-@@ -2301,6 +2301,21 @@ impl Device {
+@@ -2038,6 +2038,22 @@ impl Device {
+         // Its copies keep its own image, which it presents again once the bytes lie in pages.
+         self.stand_in_while_detached(&texels.buffer, &image)?;
+         let (offset, bytes_per_row) = (texels.layout.offset, texels.layout.row_pitch);
++        // SweetMetal2 (vayu): HOT_MTL2_LOG_COUNTS, each distinct shape (at most 64) of a texture over a buffer
++        // that becomes a shadow, with the reason no image aliases its bytes.
++        if std::env::var_os("HOT_MTL2_LOG_COUNTS").is_some() {
++            static SEEN: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
++            let [width, height, _] = layout.extent;
++            let shape = format!(
++                "m2v shadowed {:?} {width}x{height} offset {offset} rows {bytes_per_row} usage {:?}",
++                descriptor.pixel_format, usage
++            );
++            let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
++            if seen.len() < 64 && !seen.contains(&shape) {
++                let short: String = why.chars().take(160).collect();
++                eprintln!("{shape}: {short}");
++                seen.push(shape);
++            }
++        }
+         self.degrade(Degradation::ShadowedTexture, || {
+             let format = descriptor.pixel_format;
+             let [width, height, _] = layout.extent;
+@@ -2301,6 +2317,21 @@ impl Device {
              None
          };
          if let Some(why) = why {
