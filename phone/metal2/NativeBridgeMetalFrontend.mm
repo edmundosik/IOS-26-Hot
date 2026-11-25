@@ -2464,6 +2464,11 @@ static uint64_t askAnswer(SEL cmd,NSUInteger arg);
            (unsigned long)((uintptr_t)pointer-addr),(unsigned long)size,info.protection,info.share_mode,info.ref_count,info.user_tag,deallocator?1:0);
   }
  }
+ // Metal wires the pages mapped at the pointer now. Without this the runtime puts a buffer over exactly the bytes of a live
+ // one into that one's import: CoreAnimation in backboardd unmaps an app's old shared-memory image and maps the next one at
+ // the same address while the old buffer still lives, so the GPU sampled the old image's pages with the new image's size and
+ // rows (labels showing other text or smeared).
+ if(pointer)nmb_host_range_remapped(gDevice,pointer,length);
  NmbBuffer *handle=nmb_buffer_new_no_copy(gDevice,pointer,length,options);
  if(!handle){NBLOG(@"native-metal: no-copy buffer refused: %@",lastError());return nil;}
  NBBuffer *buffer=[NBBuffer new];buffer.handle=handle;buffer.options=options;

@@ -609,6 +609,20 @@ pub unsafe extern "C" fn nmb_buffer_new_no_copy(device: *mut NmbDevice, pointer:
     })
 }
 
+/// The pages under `length` bytes at `pointer` may have been replaced since a live no-copy buffer
+/// was made over them (`Device::host_range_remapped`): the next no-copy buffer there imports the
+/// pages mapped now instead of joining that buffer's import, as Metal wires each one when made.
+#[unsafe(no_mangle)]
+pub extern "C" fn nmb_host_range_remapped(device: *mut NmbDevice, pointer: *mut c_void, length: u64) {
+    guard((), || {
+        let device = get(device)?;
+        if let Some(bytes) = NonNull::new(pointer as *mut u8) {
+            device.0.host_range_remapped(bytes, length);
+        }
+        Ok(())
+    })
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn nmb_buffer_release(buffer: *mut NmbBuffer) {
     release(buffer)
