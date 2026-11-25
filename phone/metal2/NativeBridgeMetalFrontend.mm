@@ -546,7 +546,9 @@ static void wrapDump(NBTexture *t,NBBuffer *buffer) {
  // Wait 6 s more so the launch animation (which still binds the home screen labels) is over.
  if(proc && *proc && nowUs()-procChecked<6000000)return;
  const size_t w=[(id<MTLTexture>)t width],h=[(id<MTLTexture>)t height];
- if(w<48 || h<16 || h>220)return;
+ // HOT_MTL2_WRAP_DUMP_SQUARE=1: icon-sized squares (40-256 texels) instead of label-sized strips.
+ static const bool square=getenv("HOT_MTL2_WRAP_DUMP_SQUARE")!=nullptr;
+ if(square?(w!=h || w<40 || w>256):(w<48 || h<16 || h>220))return;
  const MTLPixelFormat pf=[(id<MTLTexture>)t pixelFormat];
  const size_t bpp=(size_t)sweetTexelBytes(pf),row=t.rowBytes?t.rowBytes:w*bpp;
  if(!bpp || row<w*bpp || t.offset+row*(h-1)+w*bpp>buffer.length)return;
@@ -589,6 +591,20 @@ static void flushWrapped(NSSet *owners,uint32_t commit) {
    buffer=t.buffer;
    n[t.surface?4:(buffer && buffer.wrapped)?5:buffer?6:7]++;
    if(!t.surface && buffer && buffer.wrapped && !buffer.surfaceOwner)wrapDump(t,buffer);
+   // With HOT_MTL2_WRAP_DUMP_SQUARE (backboardd): each distinct icon-sized square bound, by kind (s surface, w wrapped,
+   // b buffer, p own storage), once: shows where home screen icons come from when they are not wrapped memory.
+   static const bool squares=getenv("HOT_MTL2_WRAP_DUMP_SQUARE") && !strcmp(getprogname(),"backboardd");
+   const size_t tw=[(id<MTLTexture>)t width],th=[(id<MTLTexture>)t height];
+   if(squares && tw==th && tw>=40 && tw<=256) {
+    const char kind=t.surface?'s':(buffer && buffer.wrapped)?'w':buffer?'b':'p';
+    const unsigned long sig=(unsigned long)kind<<40|(unsigned long)tw<<24|(unsigned long)[(id<MTLTexture>)t pixelFormat];
+    static std::mutex lock;static std::vector<unsigned long> seen;
+    std::lock_guard<std::mutex> g(lock);
+    if(seen.size()<64 && std::find(seen.begin(),seen.end(),sig)==seen.end()){
+     seen.push_back(sig);
+     fprintf(stderr,"WRS %c %zu %lu surf %u\n",kind,tw,(unsigned long)[(id<MTLTexture>)t pixelFormat],t.surface?IOSurfaceGetID(t.surface):0);
+    }
+   }
   }
   if(buffer && buffer.wrapped && !buffer.surfaceOwner) {
    const uintptr_t base=reinterpret_cast<uintptr_t>(buffer.wrapped)&~(page-1);
