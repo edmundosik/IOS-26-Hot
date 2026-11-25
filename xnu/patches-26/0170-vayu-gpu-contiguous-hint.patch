@@ -1,0 +1,98 @@
+vayu: 64 KB contiguous-hint GPU PTEs (pool BOs >= 64 KB start 64 KB-aligned); sweetgpucont=0 turns it off
+
+diff --git a/bsd/dev/sweet_a6xx.c b/bsd/dev/sweet_a6xx.c
+index fc1a59a..5ef4ed1 100644
+--- a/bsd/dev/sweet_a6xx.c
++++ b/bsd/dev/sweet_a6xx.c
+@@ -900,6 +900,10 @@ static uint64_t pt_walk(struct a6_gpu *g, uint64_t table, unsigned idx)
+ 	return t;
+ }
+ 
++/* vayu: contiguous-hint PTEs (boot-arg sweetgpucont=0 turns it off, for A/B) */
++uint32_t a6_cont_hint = 1;
++uint64_t a6_mapped_4k, a6_mapped_cont;	/* 4K PTEs written, and how many of them with the hint */
++
+ /* 4K entries for [iova, iova + n * 4K) taking the physical address of each 4K page from pa_of. */
+ static int map_4k(struct a6_gpu *g, uint64_t iova, uint32_t n4k, uint64_t (*pa_of)(const void *, uint32_t),
+ 		  const void *arg)
+@@ -917,6 +921,19 @@ static int map_4k(struct a6_gpu *g, uint64_t iova, uint32_t n4k, uint64_t (*pa_o
+ 		unsigned first = (va >> 12) & 0x1ff, k = 0;
+ 		while (first + k < 512 && i < n4k)
+ 			pte[k++] = pa_of(arg, i++) | (1u << 10) | (3u << 8) | (1u << 6) | 3u;
++		/* 64 KB-aligned runs of 16 contiguous pages get the contiguous hint: one TLB entry instead of 16 */
++		for (unsigned e = (first + 15) & ~15u; a6_cont_hint && e + 16 <= first + k; e += 16) {
++			uint64_t *p = &pte[e - first];
++			unsigned j = 1;
++			while (j < 16 && p[j] == p[0] + 0x1000ull * j)
++				j++;
++			if (j == 16 && !(p[0] & 0xf000ull)) {
++				for (j = 0; j < 16; j++)
++					p[j] |= 1ull << 52;
++				a6_mapped_cont += 16;
++			}
++		}
++		a6_mapped_4k += k;
+ 		a6_write(l3 + 8ull * first, pte, 8ull * k);
+ 	}
+ 	return 0;
+diff --git a/bsd/dev/sweet_a6xx.h b/bsd/dev/sweet_a6xx.h
+index 488f393..474453a 100644
+--- a/bsd/dev/sweet_a6xx.h
++++ b/bsd/dev/sweet_a6xx.h
+@@ -119,6 +119,10 @@ uint64_t a6_submit_time(const struct a6_gpu *g, uint32_t fence);
+ #define A6_CYC_OFF	0x2000ull	/* in the scratch page, after the A6_TS_OFF slots */
+ uint64_t a6_submit_cycles(const struct a6_gpu *g, uint32_t fence);
+ 
++/* 64 KB contiguous hint on 16-page runs (sweet_gpu.c reads boot-arg sweetgpucont) */
++extern uint32_t a6_cont_hint;
++extern uint64_t a6_mapped_4k, a6_mapped_cont;
++
+ /* 4K pages (AP=01, NC) at iova -> pa; tables from the arena. Then a6_tlb_flush. */
+ int a6_map(struct a6_gpu *g, uint64_t iova, uint64_t pa, uint64_t size);
+ int a6_map_pages(struct a6_gpu *g, uint64_t iova, const uint64_t *pages, uint32_t npages, uint32_t page_size);
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index 8461b9e..a70a222 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -296,6 +296,8 @@ sweet_gpu_init(void)
+ 	a6_init_state(&gpu, ptoa_64(pn));
+ 	uint32_t lvl = 6;	/* 675 MHz NOM_L1 on SM8150-AC (585 on SM8150); boot-arg sweetgpufreq=1..6 */
+ 	PE_parse_boot_argn("sweetgpufreq", &lvl, sizeof(lvl));
++	PE_parse_boot_argn("sweetgpucont", &a6_cont_hint, sizeof(a6_cont_hint));
++	a6_log("map: contiguous hint %s\n", a6_cont_hint ? "on" : "off");
+ 	gpu.perf_level = lvl;
+ 	pool_kva = va;
+ 	vm_offset_t pva = 0;
+@@ -425,8 +427,9 @@ gpu_stats_locked(void)
+ 		    gstat_n, gstat_missed, gstat_busy / 19200, gstat_busy * 100 / 19200 / (ns / 1000000),
+ 		    gstat_longest * 10 / 192, gstat_busy * 10 / 192 / gstat_n, who);
+ 		/* measured core clock while busy: does the GMU perf vote (sweetgpufreq) reach the GPU? */
+-		a6_log("5s: core clock %llu MHz (%llu Mcycles over %llu ms busy)\n",
+-		    gstat_busy ? gstat_cyc * 192 / 10 / gstat_busy : 0, gstat_cyc / 1000000, gstat_busy / 19200);
++		a6_log("5s: core clock %llu MHz (%llu Mcycles over %llu ms busy); 64K-hinted %llu of %llu MB mapped\n",
++		    gstat_busy ? gstat_cyc * 192 / 10 / gstat_busy : 0, gstat_cyc / 1000000, gstat_busy / 19200,
++		    a6_mapped_cont >> 8, a6_mapped_4k >> 8);
+ 	}
+ 	gstat_n = gstat_missed = 0;
+ 	gstat_busy = gstat_longest = gstat_cyc = 0;
+@@ -1334,8 +1337,19 @@ sweet_gpu_pool_try_alloc(uint64_t bytes, uint64_t *pa)
+ 		}
+ 		gpool_ready = true;
+ 	}
++	/* vayu: 64 KB and up starts 64 KB-aligned, so the GPU map can use contiguous-hint PTEs (a6_cont_hint) */
++	uint64_t align = (size >= 0x10000ULL && a6_cont_hint) ? 0x10000ULL : GPOOL_UNIT;
+ 	for (uint32_t i = 0; i < gpool_nfree; i++) {
+-		if (gpool_free[i].size >= size) {
++		uint64_t a = (gpool_free[i].pa + align - 1) & ~(align - 1), head = a - gpool_free[i].pa;
++		if (gpool_free[i].size >= head + size && (head == 0 || gpool_nfree < GPOOL_FREE_MAX)) {
++			if (head) {	/* keep [pa, a) free as its own range */
++				memmove(&gpool_free[i + 1], &gpool_free[i], (gpool_nfree - i) * sizeof(gpool_free[0]));
++				gpool_nfree++;
++				gpool_free[i].size = head;
++				i++;
++				gpool_free[i].pa = a;
++				gpool_free[i].size -= head;
++			}
+ 			*pa = gpool_free[i].pa;
+ 			gpool_free[i].pa += size;
+ 			gpool_free[i].size -= size;
