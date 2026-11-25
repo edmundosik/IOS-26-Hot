@@ -514,6 +514,45 @@ static void logFrameSurfaces(NSMutableSet *items,NSMutableSet *written,uint32_t 
  if(line.size()>900)line.resize(900);
  fprintf(stderr,"m2v fr %u%s\n",commit,line.c_str());
 }
+// Caller memory wrapped without a copy (newBufferWithBytesNoCopy / newTextureWithBytesNoCopy, e.g. another
+// process's shared memory mapped here) is written by CPUs the GPU is not coherent with: clean it to the point of
+// coherency before the GPU reads it, like imported IOSurfaces. With HOT_MTL2_LOG_FRAMES (backboardd) also print
+// what each command buffer binds, by kind: buffers S surface W wrapped H shared P private; textures s surface,
+// w on wrapped memory, b on a buffer, p own storage.
+static void flushWrapped(NSSet *owners,uint32_t commit) {
+ int n[8]={};size_t wrappedBytes=0;
+ std::vector<std::pair<uintptr_t,size_t>> ranges;
+ const size_t page=(size_t)getpagesize();
+ for(id o in owners) {
+  NBBuffer *buffer=nil;
+  if([o isKindOfClass:[NBBuffer class]]) {
+   buffer=(NBBuffer *)o;
+   n[buffer.surfaceOwner?0:buffer.wrapped?1:(buffer.storageMode==MTLStorageModeShared?2:3)]++;
+  } else if([o isKindOfClass:[NBTexture class]]) {
+   NBTexture *t=(NBTexture *)o;
+   for(int depth=0;depth<8 && !t.buffer && !t.surface && [(id)t.parent isKindOfClass:[NBTexture class]];depth++)t=(NBTexture *)t.parent;
+   buffer=t.buffer;
+   n[t.surface?4:(buffer && buffer.wrapped)?5:buffer?6:7]++;
+  }
+  if(buffer && buffer.wrapped && !buffer.surfaceOwner) {
+   const uintptr_t base=reinterpret_cast<uintptr_t>(buffer.wrapped)&~(page-1);
+   const size_t span=((reinterpret_cast<uintptr_t>(buffer.wrapped)-base)+buffer.length+page-1)&~(page-1);
+   ranges.emplace_back(base,span);
+  }
+ }
+ std::sort(ranges.begin(),ranges.end());
+ const auto last=std::unique(ranges.begin(),ranges.end());
+ for(auto it=ranges.begin();it!=last;++it){sys_dcache_flush(reinterpret_cast<void *>(it->first),it->second);wrappedBytes+=it->second;}
+ static const bool on=getenv("HOT_MTL2_LOG_FRAMES") && !strcmp(getprogname(),"backboardd");
+ if(!on)return;
+ char line[200];
+ snprintf(line,sizeof line,"S%d W%d H%d P%d s%d w%d b%d p%d wb%zu",n[0],n[1],n[2],n[3],n[4],n[5],n[6],n[7],wrappedBytes);
+ static std::mutex lock;static std::string previous;static uint32_t lines=0;
+ std::lock_guard<std::mutex> g(lock);
+ if(lines>=3000 || previous==line)return;
+ previous=line;lines++;
+ fprintf(stderr,"m2v res %u %s\n",commit,line);
+}
 static void flushSurfaces(NSMutableSet *surfaces) {
  if(!surfaces.count)return;
  std::vector<std::pair<uintptr_t,size_t>> ranges;
@@ -1641,6 +1680,7 @@ static void scheduled(void *context);
   }
   flushSurfaces(_surfaces);
   logFrameSurfaces(_surfaces,_writtenSurfaces,self.commitIndex);
+  flushWrapped(_resourceOwners,self.commitIndex);
   _usedSurfaces=useSurfaces(_surfaces);
   // Completion owns this reference; the runtime orders the non-owning scheduled callback before it.
   void *context=(__bridge_retained void *)self;
