@@ -519,6 +519,42 @@ static void logFrameSurfaces(NSMutableSet *items,NSMutableSet *written,uint32_t 
 // coherency before the GPU reads it, like imported IOSurfaces. With HOT_MTL2_LOG_FRAMES (backboardd) also print
 // what each command buffer binds, by kind: buffers S surface W wrapped H shared P private; textures s surface,
 // w on wrapped memory, b on a buffer, p own storage.
+// SweetMetal2 (vayu): HOT_MTL2_WRAP_DUMP=N (backboardd) dumps the CPU bytes of the first N distinct label-sized textures over
+// wrapped memory (an app's layer contents): once when first bound, once again when bound 3 s or more later. zlib + base64
+// to stderr, "WRD key snap w h fmt bpp row bytes zlen" then "WRZ key snap n chunk". Clean text there = the app drew it
+// right and the GPU path shows it wrong; smeared there = the app's own pixels are wrong (CPU/CoreGraphics side).
+static void wrapDump(NBTexture *t,NBBuffer *buffer) {
+ static const int want=[]{const char *v=getenv("HOT_MTL2_WRAP_DUMP");return v && !strcmp(getprogname(),"backboardd")?atoi(v):0;}();
+ if(!want)return;
+ const size_t w=[(id<MTLTexture>)t width],h=[(id<MTLTexture>)t height];
+ if(w<48 || h<16 || h>220)return;
+ const MTLPixelFormat pf=[(id<MTLTexture>)t pixelFormat];
+ const size_t bpp=(size_t)sweetTexelBytes(pf),row=t.rowBytes?t.rowBytes:w*bpp;
+ if(!bpp || row<w*bpp || t.offset+row*(h-1)+w*bpp>buffer.length)return;
+ const uintptr_t key=(uintptr_t)buffer.wrapped+t.offset;
+ struct Seen {uintptr_t key;uint64_t first;int snaps;};
+ static std::mutex lock;static std::vector<Seen> seen;
+ int snap=-1;
+ {
+  std::lock_guard<std::mutex> g(lock);
+  auto it=std::find_if(seen.begin(),seen.end(),[&](const Seen &x){return x.key==key;});
+  if(it==seen.end()){if((int)seen.size()>=want)return;seen.push_back({key,nowUs(),1});snap=0;}
+  else if(it->snaps==1 && nowUs()-it->first>=3000000){it->snaps=2;snap=1;}
+ }
+ if(snap<0)return;
+ const uint8_t *src=(const uint8_t *)buffer.wrapped+t.offset;
+ std::vector<uint8_t> raw(w*bpp*h);
+ for(size_t y=0;y<h;y++)memcpy(&raw[y*w*bpp],src+y*row,w*bpp);
+ uLongf zlen=compressBound(raw.size());std::vector<uint8_t> z(zlen);
+ if(compress2(z.data(),&zlen,raw.data(),raw.size(),9)!=Z_OK)return;
+ static const char *b64="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+ std::string out;out.reserve(zlen*4/3+4);
+ for(size_t i=0;i<zlen;i+=3){uint32_t v=z[i]<<16|(i+1<zlen?z[i+1]<<8:0)|(i+2<zlen?z[i+2]:0);
+  out+=b64[v>>18&63];out+=b64[v>>12&63];out+=i+1<zlen?b64[v>>6&63]:'=';out+=i+2<zlen?b64[v&63]:'=';}
+ fprintf(stderr,"WRD %lx %d %zu %zu %lu %zu %zu %zu %lu\n",(unsigned long)key,snap,w,h,(unsigned long)pf,bpp,row,raw.size(),(unsigned long)zlen);
+ for(size_t i=0,k=0;i<out.size();i+=160,k++)fprintf(stderr,"WRZ %lx %d %zu %s\n",(unsigned long)key,snap,k,out.substr(i,160).c_str());
+ fflush(stderr);
+}
 static void flushWrapped(NSSet *owners,uint32_t commit) {
  int n[8]={};size_t wrappedBytes=0;
  std::vector<std::pair<uintptr_t,size_t>> ranges;
@@ -533,6 +569,7 @@ static void flushWrapped(NSSet *owners,uint32_t commit) {
    for(int depth=0;depth<8 && !t.buffer && !t.surface && [(id)t.parent isKindOfClass:[NBTexture class]];depth++)t=(NBTexture *)t.parent;
    buffer=t.buffer;
    n[t.surface?4:(buffer && buffer.wrapped)?5:buffer?6:7]++;
+   if(!t.surface && buffer && buffer.wrapped && !buffer.surfaceOwner)wrapDump(t,buffer);
   }
   if(buffer && buffer.wrapped && !buffer.surfaceOwner) {
    const uintptr_t base=reinterpret_cast<uintptr_t>(buffer.wrapped)&~(page-1);
