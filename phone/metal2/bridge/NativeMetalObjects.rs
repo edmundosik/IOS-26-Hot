@@ -1717,9 +1717,45 @@ pub extern "C" fn nmb_command_buffer_wait_scheduled(command_buffer: *mut NmbComm
 #[unsafe(no_mangle)]
 pub extern "C" fn nmb_command_buffer_commit(command_buffer: *mut NmbCommandBuffer) -> bool {
     guard(false, || {
-        get(command_buffer)?.0.commit().map_err(e("commit"))?;
+        let command_buffer = &get(command_buffer)?.0;
+        command_buffer.commit().map_err(e("commit"))?;
+        log_counts(command_buffer.device());
         Ok(true)
     })
+}
+
+/// SweetMetal2 (vayu): HOT_MTL2_LOG_COUNTS=1, every 5 s the runtime's work counters that cost GPU or CPU
+/// time per frame (shadow copies of textures over buffers, internal and staging submissions, waits), as
+/// deltas, to find what backboardd's frames spend beside their draws.
+fn log_counts(device: &metal2vulkan_runtime::Device) {
+    use std::sync::Mutex;
+    use std::time::Instant;
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ON.get_or_init(|| std::env::var_os("HOT_MTL2_LOG_COUNTS").is_some()) {
+        return;
+    }
+    static LAST: Mutex<Option<(Instant, metal2vulkan_runtime::WorkCounts)>> = Mutex::new(None);
+    let Ok(mut last) = LAST.lock() else { return };
+    let now = Instant::now();
+    if let Some((at, _)) = &*last {
+        if now.duration_since(*at) < Duration::from_secs(5) {
+            return;
+        }
+    }
+    let c = device.work_counts();
+    if let Some((_, p)) = &*last {
+        macro_rules! d { ($f:ident) => { c.$f.wrapping_sub(p.$f) } }
+        eprintln!(
+            "m2v counts 5s: submits {} cbs {} internal {} staging {} drains {} twaits {} | shadows +{} (total {}) copies {} texels_back {} | linear in_place {} via_copies {} kept_bytes {} | host_texel_copies {} stand_in_copies {} blits {} clears {} fills {} | pitched {} refused {} uncached {} | pipelines {} modules {}",
+            d!(queue_submissions), d!(command_buffers_submitted), d!(internal_submissions), d!(staging_submissions),
+            d!(queue_drains), d!(timeline_waits), d!(shadowed_textures), c.shadowed_textures, d!(shadow_copies),
+            d!(shadow_texels_copied_back), d!(linear_passes_in_place), d!(linear_passes_through_copies),
+            d!(kept_bytes_passes), d!(host_texel_copies), d!(stand_in_copies_made), d!(image_blits_recorded),
+            d!(attachment_clears_recorded), d!(fills_recorded), d!(pitched_host_images), d!(pitched_host_image_refusals),
+            d!(uncached_host_images), d!(variant_pipelines_made), d!(shader_modules_made)
+        );
+    }
+    *last = Some((now, c));
 }
 
 #[unsafe(no_mangle)]

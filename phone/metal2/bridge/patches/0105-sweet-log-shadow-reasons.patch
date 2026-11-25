@@ -1,0 +1,23 @@
+diff --git a/crates/metal2vulkan-runtime/src/texture.rs b/crates/metal2vulkan-runtime/src/texture.rs
+index 071beb86d..93167e018 100644
+--- a/crates/metal2vulkan-runtime/src/texture.rs
++++ b/crates/metal2vulkan-runtime/src/texture.rs
+@@ -2301,6 +2301,18 @@ impl Device {
+             None
+         };
+         if let Some(why) = why {
++            // SweetMetal2 (vayu): HOT_MTL2_LOG_COUNTS, the first 32 textures over buffers that become shadows
++            // (copied into an image before each encoder that uses them) and why.
++            if std::env::var_os("HOT_MTL2_LOG_COUNTS").is_some() {
++                static SHOWN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++                if SHOWN.fetch_add(1, std::sync::atomic::Ordering::Relaxed) < 32 {
++                    eprintln!(
++                        "m2v shadow {:?} {:?} host {} offset {} metal pitch {} image pitch {} align {} mem_off {}: {}",
++                        plan.format, plan.extent, host, texels.layout.offset, texels.layout.row_pitch,
++                        report.row_pitch, requirements.alignment, memory_offset, why
++                    );
++                }
++            }
+             // SAFETY: the image is live and unbound, and no command uses it.
+             unsafe { release::object(raw_device, raw) };
+             return Ok(Err(why));
