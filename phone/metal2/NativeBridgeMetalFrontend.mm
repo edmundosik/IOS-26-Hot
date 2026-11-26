@@ -1073,7 +1073,10 @@ static void notified(void *context,uint64_t value) {
 - (void)useResidencySet:(id)residencySet;
 - (void)useResidencySets:(const id __unsafe_unretained [])residencySets count:(NSUInteger)count;
 @end
-@interface NBEncoder : NBObject
+@interface NBEncoder : NBObject {
+ @public
+ __unsafe_unretained NBTexture *_fragmentTextures[4];   // for HOT_MTL2_LOG_TEX; the command buffer's resourceOwners keeps them alive
+}
 @property(nonatomic) NmbEncoder *handle;
 @property(nonatomic,strong) NBCommandBuffer *commandBuffer;
 @property(nonatomic) BOOL refused;
@@ -1131,6 +1134,7 @@ static void waitForResource(id resource) {
   const MTLTextureUsage u=t.usage;
   if(!u || (u&MTLTextureUsageShaderWrite))[_commandBuffer.writtenSurfaces addObject:t];
  }
+ if(stage==2 && index<4)_fragmentTextures[index]=(NBTexture *)texture;
  [self check:nmb_encoder_set_texture(_handle,stage,texture?[(NBTexture *)texture handle]:nullptr,(uint32_t)index) what:"setTexture"];
 }
 - (void)sampler:(id<MTLSamplerState>)sampler index:(NSUInteger)index stage:(uint32_t)stage {
@@ -1279,6 +1283,27 @@ static void logDraw(NSString *name,char passClass,uint64_t instances) {
  }
  seen.clear();draws=0;
 }
+// SweetMetal2 (vayu): HOT_MTL2_LOG_TEX=<prefix> prints, once per distinct shape (at most 64), the fragment textures 0-3
+// bound at draws whose fragment function starts with <prefix>: format, size, mips, storage, IOSurface format and plane,
+// view or buffer backing. log98: the app switcher's slow frames draw Tcim* shaders, absent from other frames.
+// shortcut: textures only, not samplers; add sampler filters if the textures look ordinary.
+static void logDrawTextures(NSString *name,char passClass,NBTexture *const t[4]) {
+ static const char *prefix=getenv("HOT_MTL2_LOG_TEX");
+ if(!prefix || !name || strncmp(name.UTF8String,prefix,strlen(prefix)))return;
+ char line[600];int n=snprintf(line,sizeof line,"m2v tex %c %s",passClass?passClass:'?',name.UTF8String);
+ for(unsigned i=0;i<4 && n<(int)sizeof(line)-120;i++) {
+  NBTexture *x=t[i];if(!x)continue;
+  n+=snprintf(line+n,sizeof(line)-n," t%u f%lu %lux%lu m%lu s%lu",i,(unsigned long)x.pixelFormat,(unsigned long)x.width,(unsigned long)x.height,
+              (unsigned long)x.mipmapLevelCount,(unsigned long)x.storageMode);
+  if(x.surface)n+=snprintf(line+n,sizeof(line)-n," io%08x p%lu",(unsigned)IOSurfaceGetPixelFormat(x.surface),(unsigned long)x.surfacePlane);
+  if(x.parent)n+=snprintf(line+n,sizeof(line)-n," view");
+  if(x.buffer)n+=snprintf(line+n,sizeof(line)-n," buf+%lu rb%lu",(unsigned long)x.offset,(unsigned long)x.rowBytes);
+ }
+ static std::mutex lock;static std::vector<std::string> seen;
+ std::lock_guard<std::mutex> g(lock);
+ std::string key(line);
+ if(seen.size()<64 && std::find(seen.begin(),seen.end(),key)==seen.end()){seen.push_back(key);fprintf(stderr,"%s\n",line);}
+}
 @implementation NBRenderEncoder
 - (void)setRenderPipelineState:(id<MTLRenderPipelineState>)state {
  if(self.refused)return;
@@ -1391,6 +1416,7 @@ static void logDraw(NSString *name,char passClass,uint64_t instances) {
  if(self.refused)return;
  gDraws++;self.commandBuffer->encodedWork.draws++;
  logDraw(self.pipelineName,self.passClass,i);
+ logDrawTextures(self.pipelineName,self.passClass,_fragmentTextures);
  [self check:nmb_render_draw(self.handle,t,(uint32_t)s,(uint32_t)n,(uint32_t)i,(uint32_t)b) what:"drawPrimitives"];
 }
 - (void)drawPrimitives:(MTLPrimitiveType)t vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n instanceCount:(NSUInteger)i {
@@ -1406,6 +1432,7 @@ static void logDraw(NSString *name,char passClass,uint64_t instances) {
  [self.commandBuffer.resourceOwners addObject:b];
  gDraws++;self.commandBuffer->encodedWork.draws++;
  logDraw(self.pipelineName,self.passClass,i);
+ logDrawTextures(self.pipelineName,self.passClass,_fragmentTextures);
  [self check:nmb_render_draw_indexed(self.handle,t,(uint32_t)n,k,[(NBBuffer *)b handle],o,(uint32_t)i,(int32_t)v,(uint32_t)bi) what:"drawIndexedPrimitives"];
 }
 - (void)drawIndexedPrimitives:(MTLPrimitiveType)t indexCount:(NSUInteger)n indexType:(MTLIndexType)k indexBuffer:(id<MTLBuffer>)b indexBufferOffset:(NSUInteger)o
