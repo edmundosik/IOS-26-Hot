@@ -8,7 +8,7 @@ tools/run-test.ps1 boots a test image, waits, and pulls the log unattended,
 and every run gets the same input.
 
 diff --git a/bsd/dev/vayu_touch.c b/bsd/dev/vayu_touch.c
-index bbb7dc7..a3b335b 100644
+index bbb7dc7..1314b6c 100644
 --- a/bsd/dev/vayu_touch.c
 +++ b/bsd/dev/vayu_touch.c
 @@ -713,6 +713,87 @@ out:
@@ -86,7 +86,7 @@ index bbb7dc7..a3b335b 100644
 +		va_wait(2000);
 +		va_swipe(540, 2390, 540, 1000, 250, 0);         /* dismiss */
 +		va_wait(1500);
-+		va_swipe(540, 2390, 540, 1500, 400, 600);       /* app switcher */
++		va_swipe(540, 2390, 540, 1700, 500, 800);       /* app switcher: slow, then hold still */
 +		va_wait(2000);
 +		va_swipe(540, 2390, 540, 1200, 150, 0);         /* home */
 +		va_wait(1500);
