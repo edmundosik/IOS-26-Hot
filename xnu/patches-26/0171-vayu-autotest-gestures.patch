@@ -1,0 +1,114 @@
+vayu: unattended test run with a fixed gesture script (patch 0171)
+
+vayuautotest=S starts a kernel thread that, from S seconds of uptime, plays
+the same swipes through SweetHID for vayuautotestlen=N seconds (default 60):
+home page left and back, Control Center, Notification Center, app switcher,
+home. With flamereboot=M the watchdog then resets the phone into fastboot, so
+tools/run-test.ps1 boots a test image, waits, and pulls the log unattended,
+and every run gets the same input.
+
+diff --git a/bsd/dev/vayu_touch.c b/bsd/dev/vayu_touch.c
+index bbb7dc7..a987de3 100644
+--- a/bsd/dev/vayu_touch.c
++++ b/bsd/dev/vayu_touch.c
+@@ -713,6 +713,85 @@ out:
+ 	thread_block(THREAD_CONTINUE_NULL);
+ }
+ 
++/*
++ * Unattended test run: vayuautotest=S plays a fixed gesture script through SweetHID from S seconds of
++ * uptime for vayuautotestlen=N seconds (default 60), the same on every boot, so tests compare on the
++ * same input. Pair with flamereboot so the watchdog then resets the phone into fastboot for the log pull.
++ * Panel coordinates (1080x2400). shortcut: gestures only (no app icons, whose places vary); upgrade
++ * with a tap list boot-arg once the home screen layout is fixed.
++ */
++static int va_chan;
++
++static void
++va_wait(unsigned ms)
++{
++	uint64_t deadline;
++	clock_interval_to_deadline(ms, NSEC_PER_MSEC, &deadline);
++	(void)assert_wait_deadline(&va_chan, THREAD_UNINT, deadline);
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
++static uint64_t
++va_uptime_s(void)
++{
++	uint64_t ns;
++	absolutetime_to_nanoseconds(mach_absolute_time(), &ns);
++	return ns / NSEC_PER_SEC;
++}
++
++/* One finger from (x0,y0) to (x1,y1) over ms, a move every 16 ms, held hold_ms at the end, then up. */
++static void
++va_swipe(int x0, int y0, int x1, int y1, int ms, int hold_ms)
++{
++	int steps = ms / 16 > 1 ? ms / 16 : 1;
++	sweet_hid_touch(0, 1, x0, y0);
++	for (int i = 1; i <= steps; i++) {
++		va_wait(16);
++		sweet_hid_touch(0, 1, x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps);
++	}
++	for (int t = 0; t < hold_ms; t += 16) {
++		va_wait(16);
++		sweet_hid_touch(0, 1, x1, y1);
++	}
++	va_wait(16);
++	sweet_hid_touch(0, 0, x1, y1);
++}
++
++static void
++va_thread(void *arg __unused, wait_result_t wr __unused)
++{
++	int start = 0, len = 60;
++	(void)PE_parse_boot_argn("vayuautotest", &start, sizeof(start));
++	(void)PE_parse_boot_argn("vayuautotestlen", &len, sizeof(len));
++	while (va_uptime_s() < (uint64_t)start) {
++		va_wait(500);
++	}
++	uint64_t end = va_uptime_s() + (uint64_t)len;
++	printf("SWEET AUTO: start (%d s)\n", len);
++	for (int round = 1; va_uptime_s() < end; round++) {
++		printf("SWEET AUTO: round %d\n", round);
++		va_swipe(900, 1300, 150, 1300, 250, 0);         /* home page left */
++		va_wait(1200);
++		va_swipe(150, 1300, 900, 1300, 250, 0);         /* and back */
++		va_wait(1200);
++		va_swipe(1000, 10, 1000, 1300, 300, 0);         /* Control Center */
++		va_wait(2000);
++		va_swipe(540, 2390, 540, 1200, 200, 0);         /* dismiss */
++		va_wait(1500);
++		va_swipe(540, 10, 540, 1500, 300, 0);           /* Notification Center */
++		va_wait(2000);
++		va_swipe(540, 2390, 540, 1000, 250, 0);         /* dismiss */
++		va_wait(1500);
++		va_swipe(540, 2390, 540, 1500, 400, 600);       /* app switcher */
++		va_wait(2000);
++		va_swipe(540, 2390, 540, 1200, 150, 0);         /* home */
++		va_wait(1500);
++	}
++	printf("SWEET AUTO: done\n");
++	(void)thread_terminate(current_thread());
++	thread_block(THREAD_CONTINUE_NULL);
++}
++
+ void
+ vayu_touch_init(void)
+ {
+@@ -722,6 +801,14 @@ vayu_touch_init(void)
+ 		return;
+ 	}
+ 	vt.started = true;
++	{
++		int autotest = 0;
++		thread_t va;
++		(void)PE_parse_boot_argn("vayuautotest", &autotest, sizeof(autotest));
++		if (autotest > 0 && kernel_thread_start(va_thread, NULL, &va) == KERN_SUCCESS) {
++			thread_deallocate(va);
++		}
++	}
+ 	strlcpy(vt.fw_name, "j20s_novatek_ts_fw02.bin", sizeof(vt.fw_name));
+ 	(void)PE_parse_boot_argn("vayutouch", &enabled, sizeof(enabled));
+ 	(void)PE_parse_boot_argn("vayutouchlog", &vt.log, sizeof(vt.log));
