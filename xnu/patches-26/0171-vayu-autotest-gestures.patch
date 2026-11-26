@@ -3,15 +3,15 @@ vayu: unattended test run with a fixed gesture script (patch 0171)
 vayuautotest=S starts a kernel thread that, from S seconds of uptime, plays
 the same swipes through SweetHID for vayuautotestlen=N seconds (default 60):
 home page left and back, Control Center, Notification Center, app switcher,
-home. With flamereboot=M the watchdog then resets the phone into fastboot, so
+home, after one unlock swipe. With flamereboot=M the watchdog then resets the phone into fastboot, so
 tools/run-test.ps1 boots a test image, waits, and pulls the log unattended,
 and every run gets the same input.
 
 diff --git a/bsd/dev/vayu_touch.c b/bsd/dev/vayu_touch.c
-index bbb7dc7..a987de3 100644
+index bbb7dc7..a3b335b 100644
 --- a/bsd/dev/vayu_touch.c
 +++ b/bsd/dev/vayu_touch.c
-@@ -713,6 +713,85 @@ out:
+@@ -713,6 +713,87 @@ out:
  	thread_block(THREAD_CONTINUE_NULL);
  }
  
@@ -70,6 +70,8 @@ index bbb7dc7..a987de3 100644
 +	}
 +	uint64_t end = va_uptime_s() + (uint64_t)len;
 +	printf("SWEET AUTO: start (%d s)\n", len);
++	va_swipe(540, 2390, 540, 1000, 250, 0);                 /* unlock: the phone boots to the lock screen */
++	va_wait(2500);
 +	for (int round = 1; va_uptime_s() < end; round++) {
 +		printf("SWEET AUTO: round %d\n", round);
 +		va_swipe(900, 1300, 150, 1300, 250, 0);         /* home page left */
@@ -97,7 +99,7 @@ index bbb7dc7..a987de3 100644
  void
  vayu_touch_init(void)
  {
-@@ -722,6 +801,14 @@ vayu_touch_init(void)
+@@ -722,6 +803,14 @@ vayu_touch_init(void)
  		return;
  	}
  	vt.started = true;
