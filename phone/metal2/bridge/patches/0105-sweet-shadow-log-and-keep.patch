@@ -1,3 +1,167 @@
+diff --git a/crates/metal2vulkan-runtime/src/compressed_blit.rs b/crates/metal2vulkan-runtime/src/compressed_blit.rs
+index 0e717eb9b..2aefc253c 100644
+--- a/crates/metal2vulkan-runtime/src/compressed_blit.rs
++++ b/crates/metal2vulkan-runtime/src/compressed_blit.rs
+@@ -418,6 +418,7 @@ impl Rewrite {
+                         std::slice::from_ref(set),
+                         &[],
+                     );
++                    crate::dispatch_log::note("compressed_blit", u64::from(*groups) * 1u64 * 1u64);
+                     device.cmd_dispatch(raw, *groups, 1, 1);
+                 }
+             }
+diff --git a/crates/metal2vulkan-runtime/src/depth_copy.rs b/crates/metal2vulkan-runtime/src/depth_copy.rs
+index ca4077781..c18f287c9 100644
+--- a/crates/metal2vulkan-runtime/src/depth_copy.rs
++++ b/crates/metal2vulkan-runtime/src/depth_copy.rs
+@@ -550,6 +550,7 @@ impl DepthSplit {
+         device.cmd_bind_pipeline(raw, compute, self.kernel.pipeline);
+         device.cmd_bind_descriptor_sets(raw, compute, self.kernel.layout, 0, &[self.set], &[]);
+         let [x, y, z] = self.groups;
++        crate::dispatch_log::note("depth_copy", u64::from(x) * u64::from(y) * u64::from(z));
+         device.cmd_dispatch(raw, x, y, z);
+     }
+ }
+diff --git a/crates/metal2vulkan-runtime/src/dispatch_log.rs b/crates/metal2vulkan-runtime/src/dispatch_log.rs
+new file mode 100644
+index 000000000..b1d97b0e4
+--- /dev/null
++++ b/crates/metal2vulkan-runtime/src/dispatch_log.rs
+@@ -0,0 +1,26 @@
++//! SweetMetal2 (vayu): HOT_MTL2_LOG_COMPUTE=1 counts compute dispatches recorded by each of the runtime's
++//! paths (Metal's own and the internal ones: mipmaps, two-plane surfaces, merges...) and prints them every 5 s,
++//! to name the 0.6-8.6 ms compute passes of backboardd that its Metal code never dispatches (log92/log93).
++//! shortcut: counts workgroups, not GPU time; upgrade to timestamp queries per site if two sites look alike.
++use std::collections::HashMap;
++use std::sync::{Mutex, OnceLock};
++use std::time::Instant;
++
++pub(crate) fn note(site: &'static str, groups: u64) {
++    static ON: OnceLock<bool> = OnceLock::new();
++    if !*ON.get_or_init(|| std::env::var_os("HOT_MTL2_LOG_COMPUTE").is_some()) {
++        return;
++    }
++    static STATE: Mutex<Option<(Instant, HashMap<&'static str, (u64, u64)>)>> = Mutex::new(None);
++    let mut state = STATE.lock().unwrap_or_else(|e| e.into_inner());
++    let (since, sites) = state.get_or_insert_with(|| (Instant::now(), HashMap::new()));
++    let entry = sites.entry(site).or_insert((0, 0));
++    entry.0 += 1;
++    entry.1 += groups;
++    if since.elapsed().as_secs() >= 5 {
++        let line: Vec<String> = sites.iter().map(|(s, (n, g))| format!("{s} n{n} groups {g}")).collect();
++        eprintln!("m2v dispatch 5s: {}", line.join(", "));
++        sites.clear();
++        *since = Instant::now();
++    }
++}
+diff --git a/crates/metal2vulkan-runtime/src/generated_execute.rs b/crates/metal2vulkan-runtime/src/generated_execute.rs
+index b6028f9f9..6bd80503d 100644
+--- a/crates/metal2vulkan-runtime/src/generated_execute.rs
++++ b/crates/metal2vulkan-runtime/src/generated_execute.rs
+@@ -596,6 +596,7 @@ fn record_total(
+                 &push,
+             );
+             let [x, y, z] = group_count;
++            crate::dispatch_log::note("metal", u64::from(x) * u64::from(y) * u64::from(z));
+             raw.cmd_dispatch(command_buffer, x, y, z);
+         }
+     });
+diff --git a/crates/metal2vulkan-runtime/src/lib.rs b/crates/metal2vulkan-runtime/src/lib.rs
+index 4781491b2..6e2b87a67 100644
+--- a/crates/metal2vulkan-runtime/src/lib.rs
++++ b/crates/metal2vulkan-runtime/src/lib.rs
+@@ -24,6 +24,7 @@
+ #![warn(missing_docs)]
+ 
+ mod address;
++mod dispatch_log;
+ mod address_map;
+ mod address_pool;
+ mod amplification;
+diff --git a/crates/metal2vulkan-runtime/src/linear_merge.rs b/crates/metal2vulkan-runtime/src/linear_merge.rs
+index aa25e7501..7a8423e52 100644
+--- a/crates/metal2vulkan-runtime/src/linear_merge.rs
++++ b/crates/metal2vulkan-runtime/src/linear_merge.rs
+@@ -401,6 +401,7 @@ impl LinearMerge {
+                     0,
+                     &dispatch.shape,
+                 );
++                crate::dispatch_log::note("linear_merge", u64::from(dispatch.groups) * 1u64 * 1u64);
+                 device.cmd_dispatch(raw, dispatch.groups, 1, 1);
+             }
+         }
+diff --git a/crates/metal2vulkan-runtime/src/mipmap_filter.rs b/crates/metal2vulkan-runtime/src/mipmap_filter.rs
+index d3c97cabb..bc615be04 100644
+--- a/crates/metal2vulkan-runtime/src/mipmap_filter.rs
++++ b/crates/metal2vulkan-runtime/src/mipmap_filter.rs
+@@ -308,6 +308,7 @@ impl BlitCommandEncoder {
+                         std::slice::from_ref(set),
+                         &[],
+                     );
++                    crate::dispatch_log::note("mipmap", u64::from(*x) * u64::from(*y) * 1u64);
+                     device.cmd_dispatch(command_buffer, *x, *y, 1);
+                     Barrier::everything().record(device, command_buffer);
+                 }
+diff --git a/crates/metal2vulkan-runtime/src/pending_dispatch.rs b/crates/metal2vulkan-runtime/src/pending_dispatch.rs
+index ba0e97694..2fd3e0d32 100644
+--- a/crates/metal2vulkan-runtime/src/pending_dispatch.rs
++++ b/crates/metal2vulkan-runtime/src/pending_dispatch.rs
+@@ -112,6 +112,7 @@ impl Recording {
+                     ),
+                     (None, None) => {
+                         let [x, y, z] = *groups;
++                        crate::dispatch_log::note("metal_pending", u64::from(x) * u64::from(y) * u64::from(z));
+                         raw.cmd_dispatch(command_buffer, x, y, z);
+                     }
+                 }
+diff --git a/crates/metal2vulkan-runtime/src/render/extended_shadow.rs b/crates/metal2vulkan-runtime/src/render/extended_shadow.rs
+index 6b6b94aab..9483898c5 100644
+--- a/crates/metal2vulkan-runtime/src/render/extended_shadow.rs
++++ b/crates/metal2vulkan-runtime/src/render/extended_shadow.rs
+@@ -361,6 +361,7 @@ impl ShadowFill {
+                     device.cmd_bind_pipeline(raw, compute, kernel.pipeline);
+                     device.cmd_bind_descriptor_sets(raw, compute, kernel.layout, 0, &[*set], &[]);
+                     let [x, y] = *groups;
++                    crate::dispatch_log::note("extended_shadow", u64::from(x) * u64::from(y) * 1u64);
+                     device.cmd_dispatch(raw, x, y, 1);
+                 }
+             }
+diff --git a/crates/metal2vulkan-runtime/src/render/tile_dispatch.rs b/crates/metal2vulkan-runtime/src/render/tile_dispatch.rs
+index 709bcccb6..c6d64892f 100644
+--- a/crates/metal2vulkan-runtime/src/render/tile_dispatch.rs
++++ b/crates/metal2vulkan-runtime/src/render/tile_dispatch.rs
+@@ -238,6 +238,7 @@ impl TileDispatch {
+                 for (stages, offset, bytes) in push {
+                     raw.cmd_push_constants(command_buffer, self.layout, *stages, *offset, bytes);
+                 }
++                crate::dispatch_log::note("tile", u64::from(*x) * u64::from(*y) * u64::from(*z));
+                 raw.cmd_dispatch(command_buffer, *x, *y, *z);
+             }
+             Barrier::everything().record(raw, command_buffer);
+diff --git a/crates/metal2vulkan-runtime/src/rotated.rs b/crates/metal2vulkan-runtime/src/rotated.rs
+index 22af3ce34..d4c613d15 100644
+--- a/crates/metal2vulkan-runtime/src/rotated.rs
++++ b/crates/metal2vulkan-runtime/src/rotated.rs
+@@ -348,6 +348,7 @@ impl RotatedCopies {
+                 &[set],
+                 &[],
+             );
++            crate::dispatch_log::note("rotated", u64::from(step.groups[0]) * u64::from(step.groups[1]) * 1u64);
+             device.cmd_dispatch(command_buffer, step.groups[0], step.groups[1], 1);
+             Barrier::everything().record(device, command_buffer);
+             if into {
+diff --git a/crates/metal2vulkan-runtime/src/sample_planes.rs b/crates/metal2vulkan-runtime/src/sample_planes.rs
+index fcdd1625d..49f3338aa 100644
+--- a/crates/metal2vulkan-runtime/src/sample_planes.rs
++++ b/crates/metal2vulkan-runtime/src/sample_planes.rs
+@@ -1234,6 +1234,7 @@ unsafe fn record_steps(raw: &ash::Device, command_buffer: vk::CommandBuffer, ste
+                         &[],
+                     );
+                     let [x, y, z] = *groups;
++                    crate::dispatch_log::note("sample_planes", u64::from(x) * u64::from(y) * u64::from(z));
+                     raw.cmd_dispatch(command_buffer, x, y, z);
+                 }
+                 Recorded::Merge {
 diff --git a/crates/metal2vulkan-runtime/src/shadow.rs b/crates/metal2vulkan-runtime/src/shadow.rs
 index 4bfda8f4a..0f6e7a76d 100644
 --- a/crates/metal2vulkan-runtime/src/shadow.rs
@@ -104,6 +268,18 @@ index 4bfda8f4a..0f6e7a76d 100644
              }
          }
          for shadow in shadows.iter().filter(|shadow| shadow.writes) {
+diff --git a/crates/metal2vulkan-runtime/src/shadow_merge.rs b/crates/metal2vulkan-runtime/src/shadow_merge.rs
+index 4c91c0e20..1bfadbacc 100644
+--- a/crates/metal2vulkan-runtime/src/shadow_merge.rs
++++ b/crates/metal2vulkan-runtime/src/shadow_merge.rs
+@@ -293,6 +293,7 @@ impl ShadowMerge {
+                     0,
+                     &shape,
+                 );
++                crate::dispatch_log::note("shadow_merge", u64::from(groups) * 1u64 * 1u64);
+                 device.cmd_dispatch(command_buffer, groups, 1, 1);
+             }
+             Barrier::everything().record(device, command_buffer);
 diff --git a/crates/metal2vulkan-runtime/src/texture.rs b/crates/metal2vulkan-runtime/src/texture.rs
 index 071beb86d..24cf66310 100644
 --- a/crates/metal2vulkan-runtime/src/texture.rs
@@ -191,3 +367,47 @@ index 071beb86d..24cf66310 100644
              // SAFETY: the image is live and unbound, and no command uses it.
              unsafe { release::object(raw_device, raw) };
              return Ok(Err(why));
+diff --git a/crates/metal2vulkan-runtime/src/two_planes/heap_bytes.rs b/crates/metal2vulkan-runtime/src/two_planes/heap_bytes.rs
+index 16ed1aeb9..3336b3057 100644
+--- a/crates/metal2vulkan-runtime/src/two_planes/heap_bytes.rs
++++ b/crates/metal2vulkan-runtime/src/two_planes/heap_bytes.rs
+@@ -409,6 +409,7 @@ impl BlitCommandEncoder {
+                         std::slice::from_ref(set),
+                         &[],
+                     );
++                    crate::dispatch_log::note("two_planes", u64::from(*groups) * 1u64 * 1u64);
+                     device.cmd_dispatch(command_buffer, *groups, 1, 1);
+                 }
+                 Barrier::everything().record(device, command_buffer);
+diff --git a/crates/metal2vulkan-runtime/src/visibility.rs b/crates/metal2vulkan-runtime/src/visibility.rs
+index 11fa7f624..8d142f947 100644
+--- a/crates/metal2vulkan-runtime/src/visibility.rs
++++ b/crates/metal2vulkan-runtime/src/visibility.rs
+@@ -1021,6 +1021,7 @@ impl Results {
+                             std::slice::from_ref(set),
+                             &[],
+                         );
++                        crate::dispatch_log::note("visibility", u64::from(groups) * 1u64 * 1u64);
+                         raw.cmd_dispatch(command_buffer, groups, 1, 1);
+                     }
+                 }
+diff --git a/crates/metal2vulkan-runtime/src/ycbcr.rs b/crates/metal2vulkan-runtime/src/ycbcr.rs
+index 7e545d2b5..847938c26 100644
+--- a/crates/metal2vulkan-runtime/src/ycbcr.rs
++++ b/crates/metal2vulkan-runtime/src/ycbcr.rs
+@@ -572,6 +572,7 @@ impl YCbCrConversion {
+                 &self.sets.sets,
+                 &[],
+             );
++            crate::dispatch_log::note("ycbcr", u64::from(self.groups[0]) * u64::from(self.groups[1]) * 1u64);
+             device.cmd_dispatch(command_buffer, self.groups[0], self.groups[1], 1);
+         }
+     }
+@@ -741,6 +742,7 @@ impl YCbCrWriteBack {
+                 &self.sets.sets,
+                 &[],
+             );
++            crate::dispatch_log::note("ycbcr", u64::from(self.groups[0]) * u64::from(self.groups[1]) * 1u64);
+             device.cmd_dispatch(command_buffer, self.groups[0], self.groups[1], 1);
+             Barrier::everything().record(device, command_buffer);
+             device.cmd_copy_buffer(command_buffer, staging, source, &self.back);
