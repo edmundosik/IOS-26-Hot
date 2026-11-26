@@ -947,6 +947,7 @@ static std::string quartzCoreCallers();
 @end
 @interface NBRenderPipeline : NBObject
 @property(nonatomic) NmbRenderPipeline *handle;
+@property(nonatomic,copy) NSString *fragmentName;
 @end
 @implementation NBRenderPipeline
 - (void)dealloc {nmb_render_pipeline_release(_handle);}
@@ -1249,12 +1250,41 @@ static void logComputeDispatch(NSString *name,const uint64_t s[3],const uint64_t
 @end
 
 @interface NBRenderEncoder : NBEncoder
+@property(nonatomic,copy) NSString *pipelineName;
+@property(nonatomic) char passClass;
 @end
+// SweetMetal2 (vayu): HOT_MTL2_LOG_DRAWS=1 prints, every 1 s with over 200 draws, this process's draws by fragment function
+// and pass size (F full screen, B big, M mid, T tiny), top 8 by draws, to name the shaders of the 45-100 ms app switcher
+// frames of backboardd (log97).
+// shortcut: counts draws and instances, not GPU time or covered pixels; upgrade to per-pass timestamps if the top
+// entries are all the same full-screen composite.
+static void logDraw(NSString *name,char passClass,uint64_t instances) {
+ static const bool on=getenv("HOT_MTL2_LOG_DRAWS")!=nullptr;
+ if(!on)return;
+ char key[160];
+ snprintf(key,sizeof key,"%c %s",passClass?passClass:'?',name?name.UTF8String:"?");
+ static std::mutex lock;static std::unordered_map<std::string,std::pair<uint64_t,uint64_t>> seen;static uint64_t since=0,draws=0;
+ std::lock_guard<std::mutex> l(lock);
+ auto &e=seen[key];e.first++;e.second+=instances;draws++;
+ const uint64_t now=nowUs();
+ if(!since)since=now;
+ if(now-since<1000000)return;
+ since=now;
+ if(draws>200) {
+  std::vector<std::pair<std::string,std::pair<uint64_t,uint64_t>>> v(seen.begin(),seen.end());
+  std::sort(v.begin(),v.end(),[](auto &a,auto &b){return a.second.first>b.second.first;});
+  fprintf(stderr,"m2v draws 1s: total %llu\n",(unsigned long long)draws);
+  for(size_t i=0;i<v.size() && i<8;i++)
+   fprintf(stderr,"m2v draws 1s: %s n%llu inst %llu\n",v[i].first.c_str(),(unsigned long long)v[i].second.first,(unsigned long long)v[i].second.second);
+ }
+ seen.clear();draws=0;
+}
 @implementation NBRenderEncoder
 - (void)setRenderPipelineState:(id<MTLRenderPipelineState>)state {
  if(self.refused)return;
  if(![(id)state isKindOfClass:[NBRenderPipeline class]]){[self.commandBuffer refuse:@"foreign render pipeline"];return;}
  [self.commandBuffer.resourceOwners addObject:state];
+ self.pipelineName=[(NBRenderPipeline *)state fragmentName];
  [self check:nmb_render_set_pipeline(self.handle,[(NBRenderPipeline *)state handle]) what:"setRenderPipelineState"];
 }
 - (void)setVertexBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {[self buffer:b offset:o index:i stage:1];}
@@ -1360,6 +1390,7 @@ static void logComputeDispatch(NSString *name,const uint64_t s[3],const uint64_t
 - (void)drawPrimitives:(MTLPrimitiveType)t vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n instanceCount:(NSUInteger)i baseInstance:(NSUInteger)b {
  if(self.refused)return;
  gDraws++;self.commandBuffer->encodedWork.draws++;
+ logDraw(self.pipelineName,self.passClass,i);
  [self check:nmb_render_draw(self.handle,t,(uint32_t)s,(uint32_t)n,(uint32_t)i,(uint32_t)b) what:"drawPrimitives"];
 }
 - (void)drawPrimitives:(MTLPrimitiveType)t vertexStart:(NSUInteger)s vertexCount:(NSUInteger)n instanceCount:(NSUInteger)i {
@@ -1374,6 +1405,7 @@ static void logComputeDispatch(NSString *name,const uint64_t s[3],const uint64_t
  if(![(id)b isKindOfClass:[NBBuffer class]]){[self.commandBuffer refuse:@"foreign index buffer"];return;}
  [self.commandBuffer.resourceOwners addObject:b];
  gDraws++;self.commandBuffer->encodedWork.draws++;
+ logDraw(self.pipelineName,self.passClass,i);
  [self check:nmb_render_draw_indexed(self.handle,t,(uint32_t)n,k,[(NBBuffer *)b handle],o,(uint32_t)i,(int32_t)v,(uint32_t)bi) what:"drawIndexedPrimitives"];
 }
 - (void)drawIndexedPrimitives:(MTLPrimitiveType)t indexCount:(NSUInteger)n indexType:(MTLIndexType)k indexBuffer:(id<MTLBuffer>)b indexBufferOffset:(NSUInteger)o
@@ -1654,6 +1686,12 @@ static void scheduled(void *context);
    if(pixels>=2000000)gFullScreenPasses++;
   }
  }
+ NBRenderEncoder *renderEncoder=[NBRenderEncoder new];
+ {
+  id<MTLTexture> t0=d.colorAttachments[0].texture?:d.depthAttachment.texture;
+  const uint64_t px=t0?(uint64_t)t0.width*t0.height:(uint64_t)d.renderTargetWidth*d.renderTargetHeight;
+  renderEncoder.passClass=px>=2000000?'F':px>=200000?'B':px>=20000?'M':'T';
+ }
  // SweetMetal2 (vayu): HOT_MTL2_LOG_PASSES=1 prints each distinct pass shape once to stderr (at most 48), to see
  // which attachments a frame's passes carry (log39: full passes clear an RGBA16F attachment besides the BGRA8 one).
  {
@@ -1696,7 +1734,7 @@ static void scheduled(void *context);
   [_resourceOwners addObject:d.visibilityResultBuffer];
   pass.visibility=[(NBBuffer *)d.visibilityResultBuffer handle];
  }
- return [self encoder:[NBRenderEncoder new] handle:self.committed?nullptr:nmb_render_encoder_new(_handle,&pass) what:@"renderCommandEncoder"];
+ return [self encoder:renderEncoder handle:self.committed?nullptr:nmb_render_encoder_new(_handle,&pass) what:@"renderCommandEncoder"];
 }
 - (void)addScheduledHandler:(MTLCommandBufferHandler)block {if(block)@synchronized(self){[_scheduledHandlers addObject:[block copy]];}}
 - (void)addCompletedHandler:(MTLCommandBufferHandler)block {if(block)@synchronized(self){[_completedHandlers addObject:[block copy]];}}
@@ -2757,7 +2795,7 @@ static void b3a8MaybeDump(IOSurfaceRef surface) {
  NmbRenderPipeline *handle=nmb_render_pipeline_new_with_options(gDevice,&b->raw,&creation);delete b;gTimePipeline.add(pipelineBegan);
  if(logJournal)journalRenderPipeline(d,pipelineBegan,handle?nullptr:nmb_last_error(),NBCost::now().since(costBegan));
  if(!handle)return failWith<id<MTLRenderPipelineState>>(error,@"render pipeline",nil);
- NBRenderPipeline *state=[NBRenderPipeline new];state.handle=handle;gPipelines++;if(error)*error=nil;return (id<MTLRenderPipelineState>)state;
+ NBRenderPipeline *state=[NBRenderPipeline new];state.handle=handle;state.fragmentName=[(NBFunction *)d.fragmentFunction name];gPipelines++;if(error)*error=nil;return (id<MTLRenderPipelineState>)state;
 }
 - (id<MTLBinaryArchive>)newBinaryArchiveWithDescriptor:(MTLBinaryArchiveDescriptor *)d error:(NSError **)error {
  if(d.url && !d.url.isFileURL){if(error)*error=nbError(@"a file URL is required");return nil;}
