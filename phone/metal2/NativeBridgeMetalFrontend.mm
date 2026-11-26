@@ -925,6 +925,7 @@ static std::string quartzCoreCallers();
 @end
 @interface NBComputePipeline : NBObject
 @property(nonatomic) NmbComputePipeline *handle;
+@property(nonatomic,copy) NSString *functionName;
 @end
 @implementation NBComputePipeline
 - (void)dealloc {nmb_compute_pipeline_release(_handle);}
@@ -1166,13 +1167,38 @@ static void waitForResource(id resource) {
 @end
 
 @interface NBComputeEncoder : NBEncoder
+@property(nonatomic,copy) NSString *pipelineName;
 @end
+// SweetMetal2 (vayu): HOT_MTL2_LOG_COMPUTE=1 prints, every 5 s, the compute dispatches of this process by function and
+// grid (count and threads, top 8 by threads), to name the 0.6-8.6 ms compute passes of backboardd (log92).
+// shortcut: counts threads, not GPU time; upgrade to per-dispatch timestamps if two functions have similar grids.
+static void logComputeDispatch(NSString *name,const uint64_t s[3],const uint64_t g[3],bool threads) {
+ static const bool on=getenv("HOT_MTL2_LOG_COMPUTE")!=nullptr;
+ if(!on)return;
+ const uint64_t n=threads?s[0]*s[1]*s[2]:s[0]*s[1]*s[2]*g[0]*g[1]*g[2];
+ char key[200];
+ snprintf(key,sizeof key,"%s %llux%llux%llu%s g%llux%llu",name?name.UTF8String:"?",(unsigned long long)s[0],(unsigned long long)s[1],
+          (unsigned long long)s[2],threads?"t":"tg",(unsigned long long)g[0],(unsigned long long)g[1]);
+ static std::mutex lock;static std::unordered_map<std::string,std::pair<uint64_t,uint64_t>> seen;static uint64_t since=0;
+ std::lock_guard<std::mutex> l(lock);
+ auto &e=seen[key];e.first++;e.second+=n;
+ const uint64_t now=nowUs();
+ if(!since)since=now;
+ if(now-since<5000000)return;
+ since=now;
+ std::vector<std::pair<std::string,std::pair<uint64_t,uint64_t>>> v(seen.begin(),seen.end());
+ std::sort(v.begin(),v.end(),[](auto &a,auto &b){return a.second.second>b.second.second;});
+ for(size_t i=0;i<v.size() && i<8;i++)
+  fprintf(stderr,"m2v compute 5s: %s n%llu threads %llu\n",v[i].first.c_str(),(unsigned long long)v[i].second.first,(unsigned long long)v[i].second.second);
+ seen.clear();
+}
 @implementation NBComputeEncoder
 - (MTLDispatchType)dispatchType {return MTLDispatchTypeSerial;}
 - (void)setComputePipelineState:(id<MTLComputePipelineState>)state {
  if(self.refused)return;
  if(![(id)state isKindOfClass:[NBComputePipeline class]]){[self.commandBuffer refuse:@"foreign compute pipeline"];return;}
  [self.commandBuffer.resourceOwners addObject:state];
+ self.pipelineName=[(NBComputePipeline *)state functionName];
  [self check:nmb_compute_set_pipeline(self.handle,[(NBComputePipeline *)state handle]) what:"setComputePipelineState"];
 }
 - (void)setBuffer:(id<MTLBuffer>)b offset:(NSUInteger)o atIndex:(NSUInteger)i {[self buffer:b offset:o index:i stage:0];}
@@ -1203,6 +1229,7 @@ static void waitForResource(id resource) {
  if(self.refused)return;
  gDispatches++;self.commandBuffer->encodedWork.dispatches++;
  const uint64_t s[3]={size.width,size.height,size.depth},g[3]={group.width,group.height,group.depth};
+ logComputeDispatch(self.pipelineName,s,g,threads);
  [self check:nmb_compute_dispatch(self.handle,s,g,threads) what:"dispatch"];
 }
 - (void)dispatchThreads:(MTLSize)t threadsPerThreadgroup:(MTLSize)g {[self dispatch:t group:g threads:true];}
@@ -2668,7 +2695,7 @@ static void b3a8MaybeDump(IOSurfaceRef surface) {
  const uint64_t pipelineBegan=nowUs();
  NmbComputePipeline *handle=nmb_compute_pipeline_new_with_options(gDevice,[(NBFunction *)function handle],&creation);gTimePipeline.add(pipelineBegan);
  if(!handle){NBLOG(@"native-metal: compute pipeline (%@) refused: %@",[(NBFunction *)function name],lastError());return failWith<id<MTLComputePipelineState>>(error,@"compute pipeline",nil);}
- NBComputePipeline *state=[NBComputePipeline new];state.handle=handle;gPipelines++;if(error)*error=nil;return (id<MTLComputePipelineState>)state;
+ NBComputePipeline *state=[NBComputePipeline new];state.handle=handle;state.functionName=[(NBFunction *)function name];gPipelines++;if(error)*error=nil;return (id<MTLComputePipelineState>)state;
 }
 - (id<MTLComputePipelineState>)newComputePipelineStateWithDescriptor:(MTLComputePipelineDescriptor *)d error:(NSError **)error {
  return [(id<MTLDevice>)self newComputePipelineStateWithDescriptor:d options:MTLPipelineOptionNone reflection:nil error:error];
@@ -2683,7 +2710,7 @@ static void b3a8MaybeDump(IOSurfaceRef surface) {
  const uint64_t pipelineBegan=nowUs();
  NmbComputePipeline *handle=nmb_compute_pipeline_new_with_descriptor(gDevice,&b.raw,&creation);gTimePipeline.add(pipelineBegan);
  if(!handle){NBLOG(@"native-metal: compute pipeline (%@) refused: %@",[(NBFunction *)d.computeFunction name],lastError());return failWith<id<MTLComputePipelineState>>(error,@"compute pipeline",nil);}
- NBComputePipeline *state=[NBComputePipeline new];state.handle=handle;state.label=d.label;gPipelines++;
+ NBComputePipeline *state=[NBComputePipeline new];state.handle=handle;state.label=d.label;state.functionName=[(NBFunction *)d.computeFunction name];gPipelines++;
  if(error)*error=nil;return (id<MTLComputePipelineState>)state;
 }
 - (void)newComputePipelineStateWithFunction:(id<MTLFunction>)function completionHandler:(void (^)(id<MTLComputePipelineState>,NSError *))completionHandler {
