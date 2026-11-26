@@ -8,10 +8,10 @@ tools/run-test.ps1 boots a test image, waits, and pulls the log unattended,
 and every run gets the same input.
 
 diff --git a/bsd/dev/vayu_touch.c b/bsd/dev/vayu_touch.c
-index bbb7dc7..1314b6c 100644
+index bbb7dc7..1a15e7b 100644
 --- a/bsd/dev/vayu_touch.c
 +++ b/bsd/dev/vayu_touch.c
-@@ -713,6 +713,87 @@ out:
+@@ -713,6 +713,93 @@ out:
  	thread_block(THREAD_CONTINUE_NULL);
  }
  
@@ -74,20 +74,26 @@ index bbb7dc7..1314b6c 100644
 +	va_wait(2500);
 +	for (int round = 1; va_uptime_s() < end; round++) {
 +		printf("SWEET AUTO: round %d\n", round);
++		printf("SWEET AUTO: left\n");
 +		va_swipe(900, 1300, 150, 1300, 250, 0);         /* home page left */
 +		va_wait(1200);
++		printf("SWEET AUTO: right\n");
 +		va_swipe(150, 1300, 900, 1300, 250, 0);         /* and back */
 +		va_wait(1200);
++		printf("SWEET AUTO: control-center\n");
 +		va_swipe(1000, 10, 1000, 1300, 300, 0);         /* Control Center */
 +		va_wait(2000);
 +		va_swipe(540, 2390, 540, 1200, 200, 0);         /* dismiss */
 +		va_wait(1500);
++		printf("SWEET AUTO: notification-center\n");
 +		va_swipe(540, 10, 540, 1500, 300, 0);           /* Notification Center */
 +		va_wait(2000);
 +		va_swipe(540, 2390, 540, 1000, 250, 0);         /* dismiss */
 +		va_wait(1500);
++		printf("SWEET AUTO: app-switcher\n");
 +		va_swipe(540, 2390, 540, 1700, 500, 800);       /* app switcher: slow, then hold still */
 +		va_wait(2000);
++		printf("SWEET AUTO: home\n");
 +		va_swipe(540, 2390, 540, 1200, 150, 0);         /* home */
 +		va_wait(1500);
 +	}
@@ -99,7 +105,7 @@ index bbb7dc7..1314b6c 100644
  void
  vayu_touch_init(void)
  {
-@@ -722,6 +803,14 @@ vayu_touch_init(void)
+@@ -722,6 +809,14 @@ vayu_touch_init(void)
  		return;
  	}
  	vt.started = true;

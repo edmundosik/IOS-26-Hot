@@ -1,0 +1,27 @@
+vayu: name GPU submits over sweetgpuslow=N ms (patch 0172)
+
+log96 (unattended run): single submits of 65-116 ms recur once per gesture
+round. With sweetgpuslow=N each submit over N ms is logged with its pid and
+fence, and the autotest logs each gesture step, so the log shows which
+gesture (and which process) costs them.
+
+diff --git a/bsd/dev/sweet_gpu.c b/bsd/dev/sweet_gpu.c
+index a70a222..9d8aedd 100644
+--- a/bsd/dev/sweet_gpu.c
++++ b/bsd/dev/sweet_gpu.c
+@@ -385,6 +385,15 @@ gpu_stats_locked(void)
+ 		if (t > gstat_longest) {
+ 			gstat_longest = t;
+ 		}
++		/* sweetgpuslow=N: name each submit over N ms (with the unattended test's step lines, which gesture costs it). */
++		static int slow_ms = -1;
++		if (slow_ms < 0) {
++			slow_ms = 0;
++			PE_parse_boot_argn("sweetgpuslow", &slow_ms, sizeof(slow_ms));
++		}
++		if (slow_ms > 0 && t > (uint64_t)slow_ms * 19200ULL) {
++			a6_log("slow submit: %llu us, pid %d, fence %u\n", t * 10 / 192, pid, gstat_next);
++		}
+ 	}
+ 	uint64_t now = mach_absolute_time(), ns;
+ 	if (gstat_abs == 0) {
