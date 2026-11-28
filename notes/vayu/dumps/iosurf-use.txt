@@ -1,0 +1,101 @@
+== IOSurface symbols containing 'UseCount': 27
+  0x1b1c00170 _IOSurfaceClientIncrementUseCount
+  0x1b1c00220 _IOSurfaceClientIncrementUseCountForCategory
+  0x1b1c0036c _IOSurfaceIncrementUseCount
+  0x1b1c00480 _IOSurfaceClientDecrementUseCount
+  0x1b1c00488 _IOSurfaceDecrementUseCount
+  0x1b1c004a4 _IOSurfaceClientDecrementUseCountForCategory
+  0x1b1c07900 -[IOSurface localUseCount]
+  0x1b1c07994 -[IOSurface incrementUseCount]
+  0x1b1c0799c -[IOSurface decrementUseCount]
+  0x1b1c079a4 +[IOSurface numberOfUseCountCategories]
+  0x1b1c079ac -[IOSurface incrementUseCountForCategory:]
+  0x1b1c079b8 -[IOSurface decrementUseCountForCategory:]
+  0x1b1c0849c _IOSurfaceClientGetUseCount
+  0x1b1c0868c _IOSurfaceClientGetProhibitUseCount
+  0x1b1c0adf0 _IOSurfaceGetUseCount
+  0x1b1c0ae0c _IOSurfaceGetNumberOfUseCountCategories
+  0x1b1c0ae14 _IOSurfaceIncrementUseCountForCategory
+  0x1b1c0ae30 _IOSurfaceDecrementUseCountForCategory
+  0x1b1c0ae84 _IOSurfaceGetProhibitUseCount
+  0x1b1c0d91c __IOSurfaceRemoteMethodClientIncrementUseCount
+  0x1b1c0d93c __IOSurfaceRemoteMethodClientDecrementUseCount
+  0x1b1c0dd74 __IOSurfaceRemoteMethodClientIncrementUseCountForCategory
+  0x1b1c0ddb8 __IOSurfaceRemoteMethodClientDecrementUseCountForCategory
+  0x1b1c10114 _IOSurfaceClientDecrementUseCountForCategory.cold.1
+  0x1b1c10114 _IOSurfaceClientGetUseCount.cold.1
+  0x1b1c10114 _IOSurfaceClientIncrementUseCountForCategory.cold.1
+  0x1e67aff08 _kIOSurfaceProhibitUseCount
+== IOSurface symbols containing 'InUse': 18
+  0x1b1bfd1bc _IOSurfaceIsInUse
+  0x1b1bfd2a0 _IOSurfaceClientIsInUse
+  0x1b1c07908 -[IOSurface isInUse]
+  0x1b1c0792c -[IOSurface isInUseForCategory:]
+  0x1b1c07954 -[IOSurface isInUseForAnyOtherCategory:]
+  0x1b1c0850c _IOSurfaceClientIsInUseForCategory
+  0x1b1c085cc _IOSurfaceClientIsInUseForAnyOtherCategory
+  0x1b1c0ae4c _IOSurfaceIsInUseForCategory
+  0x1b1c0ae68 _IOSurfaceIsInUseForAnyOtherCategory
+  0x1b1c0d95c __IOSurfaceRemoteMethodClientIsInUse
+  0x1b1c0ddfc __IOSurfaceRemoteMethodClientIsInUseForCategory
+  0x1b1c0de78 __IOSurfaceRemoteMethodClientIsInUseForAnyOtherCategory
+  0x1b1c10114 _IOSurfaceClientIsInUse.cold.1
+  0x1b1c10114 _IOSurfaceClientIsInUseForAnyOtherCategory.cold.1
+  0x1b1c10114 _IOSurfaceClientIsInUseForCategory.cold.1
+  0x1e67afd70 _kIOSurfacePurgeWhenNotInUse
+  0x1e67afd78 _kIOSurfaceResetDefaultAttachmentsWhenNotInUse
+  0x1e67b0278 _IOSurfaceRemoteKeyIsInUse
+== IOSurface`_IOSurfaceIsInUse at 0x1b1bfd1bc
+  1b1bfd1bc:b40000c0 1b1bfd1c0:b01c6388 1b1bfd1c4:91375108 1b1bfd1c8:b9800108 1b1bfd1cc:f8686800 1b1bfd1d0:14000034 1b1bfd1d4:d65f03c0 1b1bfd1d8:d503237f
+  1b1bfd1dc:d10183ff 1b1bfd1e0:a9044ff4 1b1bfd1e4:a9057bfd 1b1bfd1e8:910143fd 1b1bfd1ec:aa0203f3 1b1bfd1f0:b019cf68 1b1bfd1f4:f9454108 1b1bfd1f8:f9400108
+  1b1bfd1fc:f81e83a8 1b1bfd200:52800028 1b1bfd204:b9001fe8 1b1bfd208:b9408808 1b1bfd20c:2a0103e9 1b1bfd210:a90223ff 1b1bfd214:f9001be9 1b1bfd218:52800000
+  1b1bfd21c:97ffff76 1b1bfd220:a9007fff 1b1bfd224:9100a3e2 1b1bfd228:910083e6 1b1bfd22c:910073e7 1b1bfd230:52800281 1b1bfd234:52800043 1b1bfd238:d2800004
+  1b1bfd23c:d2800005 1b1bfd240:940c52b4 1b1bfd244:b4000073 1b1bfd248:f94013e8 1b1bfd24c:b9000268 1b1bfd250:f85e83a8 1b1bfd254:b019cf69 1b1bfd258:f9454129
+  1b1bfd25c:f9400129 1b1bfd260:eb08013f 1b1bfd264:540000a1 1b1bfd268:a9457bfd 1b1bfd26c:a9444ff4 1b1bfd270:910183ff 1b1bfd274:d65f03c0 1b1bfd278:940c535e
+  1b1bfd27c:b40000c0 1b1bfd280:b01c6388 1b1bfd284:91375108 1b1bfd288:b9800108 1b1bfd28c:f8686800 1b1bfd290:17ffffd2 1b1bfd294:52805840 1b1bfd298:72bc0000
+  1b1bfd29c:d65f03c0 1b1bfd2a0:39437408 1b1bfd2a4:350000c8 1b1bfd2a8:f9403c08 1b1bfd2ac:f9400d08 1b1bfd2b0:f100011f 1b1bfd2b4:1a9f07e0 1b1bfd2b8:d65f03c0
+  1b1bfd2bc:d503237f 1b1bfd2c0:d100c3ff 1b1bfd2c4:a9014ff4 1b1bfd2c8:a9027bfd 1b1bfd2cc:910083fd 1b1bfd2d0:d01c6393 1b1bfd2d4:91098273 1b1bfd2d8:f90003e0
+  1b1bfd2dc:d00000a2 1b1bfd2e0:913e5442 1b1bfd2e4:aa1303e0 1b1bfd2e8:52802001 1b1bfd2ec:940050b8 1b1bfd2f0:d01c6388 1b1bfd2f4:f9008513 1b1bfd2f8:b019cf60
+  b  at 0x1b1bfd1d0 -> 0x1b1bfd2a0 IOSurface`_IOSurfaceClientIsInUse+0x0
+  bl at 0x1b1bfd21c -> 0x1b1bfcff4 IOSurface`__ioSurfaceConnectInternal+0x0
+  bl at 0x1b1bfd240 -> 0x1b1f11d10 LocalAuthenticationCore`_objc_msgSend$workQueue+0x64570
+  bl at 0x1b1bfd278 -> 0x1b1f11ff0 LocalAuthenticationCore`_objc_msgSend$workQueue+0x64850
+  b  at 0x1b1bfd290 -> 0x1b1bfd1d8 IOSurface`_IOSurfaceClientSetPurgeable+0x0
+  bl at 0x1b1bfd2ec -> 0x1b1c115cc IOSurface`__ioSurfaceDeserializedFromXPCDictionaryWithKey.cold.3+0xc50
+== IOSurface`_IOSurfaceIncrementUseCount at 0x1b1c0036c
+  1b1c0036c:b40000c0 1b1c00370:d01c6368 1b1c00374:91375108 1b1c00378:b9800108 1b1c0037c:f8686800 1b1c00380:17ffff7c 1b1c00384:d65f03c0 1b1c00388:b40000c0
+  1b1c0038c:d01c6368 1b1c00390:91375108 1b1c00394:b9800108 1b1c00398:f8686800 1b1c0039c:14000002 1b1c003a0:d65f03c0 1b1c003a4:7100103f 1b1c003a8:54000069
+  1b1c003ac:52800000 1b1c003b0:d65f03c0 1b1c003b4:f9403c08 1b1c003b8:3940bd08 1b1c003bc:1ac12508 1b1c003c0:12000100 1b1c003c4:d65f03c0 1b1c003c8:d503237f
+  1b1c003cc:d10143ff 1b1c003d0:a9047bfd 1b1c003d4:910103fd 1b1c003d8:d019cf48 1b1c003dc:f9454108 1b1c003e0:f9400108 1b1c003e4:f81f83a8 1b1c003e8:b9408808
+  1b1c003ec:a93e87a8 1b1c003f0:f90013ff 1b1c003f4:52800028 1b1c003f8:b9001fe8 1b1c003fc:52800000 1b1c00400:97fff2fd 1b1c00404:a9007fff 1b1c00408:d10063a2
+  1b1c0040c:910083e6 1b1c00410:910073e7 1b1c00414:52800461 1b1c00418:52800043 1b1c0041c:d2800004 1b1c00420:d2800005 1b1c00424:940c463b 1b1c00428:b94023e8
+  1b1c0042c:7100001f 1b1c00430:1a9f0100 1b1c00434:f85f83a8 1b1c00438:d019cf49 1b1c0043c:f9454129 1b1c00440:f9400129 1b1c00444:eb08013f 1b1c00448:54000081
+  1b1c0044c:a9447bfd 1b1c00450:910143ff 1b1c00454:d65f03c0 1b1c00458:940c46e6 1b1c0045c:d2800001 1b1c00460:17ffffda 1b1c00464:b40000c0 1b1c00468:d01c6368
+  1b1c0046c:91375108 1b1c00470:b9800108 1b1c00474:f8686800 1b1c00478:17fffff9 1b1c0047c:d65f03c0 1b1c00480:52800001 1b1c00484:14000008 1b1c00488:b40000c0
+  1b1c0048c:d01c6368 1b1c00490:91375108 1b1c00494:b9800108 1b1c00498:f8686800 1b1c0049c:17fffff9 1b1c004a0:d65f03c0 1b1c004a4:d503237f 1b1c004a8:d100c3ff
+  b  at 0x1b1c00380 -> 0x1b1c00170 IOSurface`_IOSurfaceClientIncrementUseCount+0x0
+  b  at 0x1b1c0039c -> 0x1b1c003a4 IOSurface`_IOSurfaceClientHasDataProperty+0x0
+  bl at 0x1b1c00400 -> 0x1b1bfcff4 IOSurface`__ioSurfaceConnectInternal+0x0
+  bl at 0x1b1c00424 -> 0x1b1f11d10 LocalAuthenticationCore`_objc_msgSend$workQueue+0x64570
+  bl at 0x1b1c00458 -> 0x1b1f11ff0 LocalAuthenticationCore`_objc_msgSend$workQueue+0x64850
+  b  at 0x1b1c00460 -> 0x1b1c003c8 IOSurface`_IOSurfaceClientCreateMachPortWithOptions+0x0
+  b  at 0x1b1c00478 -> 0x1b1c0045c IOSurface`_IOSurfaceClientCreateMachPort+0x0
+  b  at 0x1b1c00484 -> 0x1b1c004a4 IOSurface`_IOSurfaceClientDecrementUseCountForCategory+0x0
+  b  at 0x1b1c0049c -> 0x1b1c00480 IOSurface`_IOSurfaceClientDecrementUseCount+0x0
+== IOSurface`_IOSurfaceDecrementUseCount at 0x1b1c00488
+  1b1c00488:b40000c0 1b1c0048c:d01c6368 1b1c00490:91375108 1b1c00494:b9800108 1b1c00498:f8686800 1b1c0049c:17fffff9 1b1c004a0:d65f03c0 1b1c004a4:d503237f
+  1b1c004a8:d100c3ff 1b1c004ac:a9014ff4 1b1c004b0:a9027bfd 1b1c004b4:910083fd 1b1c004b8:aa0103f4 1b1c004bc:aa0003f3 1b1c004c0:7100083f 1b1c004c4:54000123
+  1b1c004c8:d019cb08 1b1c004cc:f9416d00 1b1c004d0:b019cb08 1b1c004d4:f9467108 1b1c004d8:f9400102 1b1c004dc:d01fd3a3 1b1c004e0:91166063 1b1c004e4:94005ff7
+  1b1c004e8:39437668 1b1c004ec:350005c8 1b1c004f0:d2c00028 1b1c004f4:b2607fe9 1b1c004f8:f940066b 1b1c004fc:92607d6a 1b1c00500:eb08015f 1b1c00504:1a9f17ec
+  1b1c00508:8b09014a 1b1c0050c:d360fd6d 1b1c00510:f10001bf 1b1c00514:9a9f114d 1b1c00518:b3407d6d 1b1c0051c:7100056a 1b1c00520:1a9f17ee 1b1c00524:7100017f
+  1b1c00528:9a8a016a 1b1c0052c:aa0b03ef 1b1c00530:b3407d4f 1b1c00534:7100029f 1b1c00538:1a8e118a 1b1c0053c:9a8f11ac 1b1c00540:9100226d 1b1c00544:aa0b03ee
+  1b1c00548:c8ae7dac 1b1c0054c:eb0b01df 1b1c00550:54fffd41 1b1c00554:3400020a 1b1c00558:52800000 1b1c0055c:97fff2a6 1b1c00560:b9408a62 1b1c00564:2a1403e3
+  1b1c00568:52800021 1b1c0056c:940c45f1 1b1c00570:34000120 1b1c00574:d019cf48 1b1c00578:f9454508 1b1c0057c:f9400108 1b1c00580:f90003e0 1b1c00584:f0000081
+  1b1c00588:913b9021 1b1c0058c:aa0803e0 1b1c00590:94004317 1b1c00594:a9427bfd 1b1c00598:a9414ff4 1b1c0059c:9100c3ff 1b1c005a0:d65f03c0 1b1c005a4:f01c6374
+  1b1c005a8:91098294 1b1c005ac:f90003f3 1b1c005b0:f0000082 1b1c005b4:91397042 1b1c005b8:aa1403e0 1b1c005bc:52802001 1b1c005c0:94004403 1b1c005c4:f01c6368
+  b  at 0x1b1c0049c -> 0x1b1c00480 IOSurface`_IOSurfaceClientDecrementUseCount+0x0
+  bl at 0x1b1c004e4 -> 0x1b1c184c0 IOSurface`_objc_msgSend$raise:format:+0x0
+  bl at 0x1b1c0055c -> 0x1b1bfcff4 IOSurface`__ioSurfaceConnectInternal+0x0
+  bl at 0x1b1c0056c -> 0x1b1f11d30 LocalAuthenticationCore`_objc_msgSend$workQueue+0x64590
+  bl at 0x1b1c00590 -> 0x1b1c111ec IOSurface`__ioSurfaceDeserializedFromXPCDictionaryWithKey.cold.3+0x870
+  bl at 0x1b1c005c0 -> 0x1b1c115cc IOSurface`__ioSurfaceDeserializedFromXPCDictionaryWithKey.cold.3+0xc50

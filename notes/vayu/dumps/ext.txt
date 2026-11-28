@@ -1,0 +1,4 @@
+cnid 17163 size 0x1d9dc0 block size 4096 blocks 474
+  file 0x00000000-0x001da000  disk block 84871 (+474)  byte 0x14b87000
+468cf23b5840c062: in file at no
+76dbb7c6cfed4668: in file at no

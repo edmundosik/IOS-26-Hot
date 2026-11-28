@@ -1,0 +1,20 @@
+0x1ab4c6c18 (0x18c55ec18)  SwiftUI`_$s7SwiftUI3AppPAAE4mainyyFZ+0x7c
+  18c55ebb8:aa0003f3 18c55ebbc:aa0003e8 18c55ebc0:f85f8d10 18c55ebc4:aa0803f1 18c55ebc8:f2e5c7f1 18c55ebcc:d503201f 18c55ebd0:f9402208 18c55ebd4:aa0803e9 18c55ebd8:f030c851 18c55ebdc:912fe231 18c55ebe0:f9400230 18c55ebe4:d63f0200 18c55ebe8:910003e9 18c55ebec:91003d08 18c55ebf0:927ced08 18c55ebf4:cb080136 18c55ebf8:910002df 18c55ebfc:944a8821 18c55ec00:944a73d8 18c55ec04:36000080 18c55ec08:aa1303e0 18c55ec0c:944a91a9 18c55ec10:360001e0 18c55ec14:aa1503e9 18c55ec18:f8420d2a 18c55ec1c:aa1603e8 18c55ec20:aa1303f4 18c55ec24:aa1303e0 18c55ec28:aa1503e1 18c55ec2c:aa0903f1 18c55ec30:f2edb991 18c55ec34:d63f0140 18c55ec38:aa1603e0 18c55ec3c:aa1303e1 18c55ec40:aa1503e2 18c55ec44:94000110 18c55ec48:d4200020 18c55ec4c:d2fc0008 18c55ec50:a93d23bf 18c55ec54:d100c3b4 18c55ec58:52800500 18c55ec5c:944a939d 18c55ec60:f85d83a0 18c55ec64:944a9ca7 18c55ec68:f0007e28 18c55ec6c:9136c108 18c55ec70:d1008108 18c55ec74:b2410108
+0x1ab4c6c10 (0x18c55ec10)  SwiftUI`_$s7SwiftUI3AppPAAE4mainyyFZ+0x74
+0x19f089c1c (0x180121c1c)  dyld`start+0x1b10
+0x1adf9782c (0x18f02f82c)  libsystem_c.dylib`_nanosleep+0xdc
+0x1dc8aa84c (0x1bd94284c)  libdispatch.dylib`__dlock_wait+0x38
+0x1cca90094 (0x1adb28094)  BiomeFoundation`<redacted>+0x38
+0x1a2465770 (0x1834fd770)  CoreFoundation`_cow_cleanup+0xa0
+0x1ea9a59ac (0x1cba3d9ac)  BiomeStorage`<redacted>+0x2c
+0x2bbcc0c6c (0x29cd58c6c)  caulk`__ZN5caulk9semaphore10timed_waitEd+0xe0
+0x1dc8c3984 (0x1bd95b984)  libdispatch.dylib`__dispatch_mach_send_and_wait_for_reply+0x224
+0x1b6e95edc (0x197f2dedc)  libxpc.dylib`_xpc_connection_send_message_with_reply_sync+0x100
+0x19f720714 (0x1807b8714)  Foundation`___NSXPCCONNECTION_IS_WAITING_FOR_A_SYNCHRONOUS_REPLY__+0x10
+0x1c7b22e24 (0x1a8bbae24)  IconServices`___46-[ISConcreteIcon generateImageWithDescriptor:]_block_invoke+0x174
+0x1a247b54c (0x18351354c)  CoreFoundation`__CFRunLoopRunSpecificWithOptions+0x214
+0x242b0072c (0x223b9872c)  SpringBoard`_SBSystemAppMain+0x158c
+== Preferences around 0x1000039cc
+10000399c:d2849471 1000039a0:d503201f 1000039a4:aa1003e1 1000039a8:d00008d0 1000039ac:912c6210 1000039b0:d298dd71 1000039b4:d503201f 1000039b8:aa1003e2 1000039bc:94000172 1000039c0:aa0003e1 1000039c4:aa1403e0 1000039c8:94044d38 1000039cc:52800000 1000039d0:a9437bfd 1000039d4:a9424ff4 1000039d8:a94157f6 1000039dc:910103ff 1000039e0:d65f03c0 1000039e4:d503237f 1000039e8:f81a0ffc 1000039ec:a9016bfb 1000039f0:a90263f9 1000039f4:a9035bf7 1000039f8:a9044ff4
+  bl at 0x1000039bc -> 0x100003f84 
+  bl at 0x1000039c8 -> 0x100116ea8 _$s7SwiftUI3AppPAAE4mainyyFZ

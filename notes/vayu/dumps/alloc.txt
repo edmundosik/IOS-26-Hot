@@ -1,0 +1,11 @@
+volume: 7340032 blocks of 4096, header says 2243482 free
+allocation file: 917504 bytes, extents [(1, 224)]
+  phone copy: ./adb shell 'd=$(readlink -f /dev/block/by-name/userdata); dd if=$d of=/tmp/bitmap.bin bs=4096 skip=1 count=224'
+checking the image bitmap (917504 bytes)
+  block 85239: used
+  block 85240: used
+  block 85241: used
+  block 85242: used
+file blocks 5021316, bitmap marks 5096550 used (2243482 free)
+files with blocks marked FREE: 0 (0 blocks)
+files sharing blocks with another file: 0 (0 blocks)

@@ -1,0 +1,8 @@
+vayu test image build kit (from perf thread, 2026-11-25). Current = daily test89 (wp89.tar, k70-kernel.development.sweet).
+Overlay: wp83.tar (HotMetal2 78d4f3f+c6e970f, launchd.plist without bluetoothd, mtl2-clients -iconservicesagent, mtl2-env TU_FETCH_GMEM_MIN_DRAWS=16).
+To change: rewrite members of wp83.tar (keep tar format, replace last occurrence), then
+  python3 -c "import importlib.util,struct;s=importlib.util.spec_from_file_location('mp','tools/mkpayload.py');mp=importlib.util.module_from_spec(s);s.loader.exec_module(mp);n=mp.add_overlay_to_adt(open('adt26.bin','rb').read(),open('wpNN.tar','rb').read());assert struct.pack('<Q',0xbcc00000) in n;open('adtNN.bin','wb').write(n)"
+  python3 tools/mkpayload.py k67-kernel.development.sweet adtNN.bin ramdiskNN.bin --cmdline "$(cat cmd82.txt)"
+  python3 tools/mkbootimg_vayu.py --kernel kernel --ramdisk ramdiskNN.bin --dtb dtb --cmdline "androidboot.boot_devices=soc/1d84000.ufshc androidboot.hardware=qcom androidboot.usbcontroller=a600000.dwc3 lpm_levels.sleep_disabled=1" -o vayu-NAME-testNN.img
+(tools/ = repo tools/, branch claude/project-thread-otjie5). Deliver: split -b 21000000 parts, device_commit_files to platform-tools, cat there, sha256sum.
+Log decode: python3 tools/sweet-log.py sweetlog.bin > logNN.txt

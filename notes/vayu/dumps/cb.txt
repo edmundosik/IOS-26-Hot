@@ -1,0 +1,182 @@
+== CoreBrightness`DisplayCreateWithCapabilitiesAndID at 0x1e1fc0c1c
+  1e1fc0c1c:d503237f 1e1fc0c20:a9be6ffc 1e1fc0c24:a9017bfd 1e1fc0c28:910043fd 1e1fc0c2c:d13d03ff 1e1fc0c30:d2800008 1e1fc0c34:f90367e8 1e1fc0c38:b0000030
+  1e1fc0c3c:913c9210 1e1fc0c40:d503201f 1e1fc0c44:f90357f0 1e1fc0c48:b0fff7b0 1e1fc0c4c:9115a210 1e1fc0c50:d503201f 1e1fc0c54:f9035bf0 1e1fc0c58:d0fff610
+  1e1fc0c5c:911af210 1e1fc0c60:d503201f 1e1fc0c64:f9035ff0 1e1fc0c68:d001b148 1e1fc0c6c:f9454108 1e1fc0c70:f9400108 1e1fc0c74:f81e83a8 1e1fc0c78:b90af7e0
+  1e1fc0c7c:f90577e1 1e1fc0c80:f90573e2 1e1fc0c84:b90adfe3 1e1fc0c88:f9056bff 1e1fc0c8c:d001ad08 1e1fc0c90:f9440508 1e1fc0c94:f90363e8 1e1fc0c98:f9400108
+  1e1fc0c9c:f90567e8 1e1fc0ca0:d0000400 1e1fc0ca4:9133c800 1e1fc0ca8:900003c1 1e1fc0cac:9135dc21 1e1fc0cb0:94d5630c 1e1fc0cb4:f94363e8 1e1fc0cb8:f94367e1
+  1e1fc0cbc:900555e9 1e1fc0cc0:f9064120 1e1fc0cc4:f9400100 1e1fc0cc8:940012a6 1e1fc0ccc:f9056be0 1e1fc0cd0:f9456be8 1e1fc0cd4:b5000088 1e1fc0cd8:14000001
+  1e1fc0cdc:f9057fff 1e1fc0ce0:14001291 1e1fc0ce4:f9456be8 1e1fc0ce8:6f00e400 1e1fc0cec:bd011500 1e1fc0cf0:f9456be8 1e1fc0cf4:1e3e1000 1e1fc0cf8:bd011900
+  1e1fc0cfc:f9456be8 1e1fc0d00:b900dd1f 1e1fc0d04:f9456be8 1e1fc0d08:b900e11f 1e1fc0d0c:f9456be8 1e1fc0d10:b900e51f 1e1fc0d14:f9456be8 1e1fc0d18:f900091f
+  1e1fc0d1c:f9456be8 1e1fc0d20:b900291f 1e1fc0d24:b94adfe8 1e1fc0d28:f9456be9 1e1fc0d2c:b9313128 1e1fc0d30:f9456be8 1e1fc0d34:b931351f 1e1fc0d38:f9456be8
+  1e1fc0d3c:b931391f 1e1fc0d40:f9456be8 1e1fc0d44:3905051f 1e1fc0d48:f9456be8 1e1fc0d4c:3905091f 1e1fc0d50:f9456be8 1e1fc0d54:39050d1f 1e1fc0d58:f9456be8
+  1e1fc0d5c:f900691f 1e1fc0d60:f9456be8 1e1fc0d64:52a8f009 1e1fc0d68:1e270120 1e1fc0d6c:bd00d900 1e1fc0d70:f9456be8 1e1fc0d74:d2863509 1e1fc0d78:8b090108
+  1e1fc0d7c:3900011f 1e1fc0d80:f9456be8 1e1fc0d84:1e2e1000 1e1fc0d88:bd31b900 1e1fc0d8c:912b03e0 1e1fc0d90:f90563ff 1e1fc0d94:94d56233 1e1fc0d98:bd4ac3e1
+  1e1fc0d9c:4ea11c20 1e1fc0da0:7e61d800 1e1fc0da4:bd4ac7e2 1e1fc0da8:4ea21c41 1e1fc0dac:7e61d821 1e1fc0db0:1e611800 1e1fc0db4:d0000448 1e1fc0db8:fd46b901
+  1e1fc0dbc:1e610800 1e1fc0dc0:f9456be8 1e1fc0dc4:fd001d00 1e1fc0dc8:f94573e8 1e1fc0dcc:b5000168 1e1fc0dd0:14000001 1e1fc0dd4:d00555c8 1e1fc0dd8:9137e100
+  1e1fc0ddc:94d56259 1e1fc0de0:f94353e1 1e1fc0de4:b94af7e2 1e1fc0de8:940354b6 1e1fc0dec:f9456be8 1e1fc0df0:f9197900 1e1fc0df4:14000008 1e1fc0df8:f94573e0
+  1e1fc0dfc:d001b128 1e1fc0e00:f9459508 1e1fc0e04:d63f0100 1e1fc0e08:f9456be8 1e1fc0e0c:f9197900 1e1fc0e10:14000001 1e1fc0e14:14000001 1e1fc0e18:f9456be8
+  1e1fc0e1c:f9597908 1e1fc0e20:b50006a8 1e1fc0e24:14000001 1e1fc0e28:900555e8 1e1fc0e2c:f9464108 1e1fc0e30:b40000c8 1e1fc0e34:14000001 1e1fc0e38:900555e8
+  1e1fc0e3c:f9464108 1e1fc0e40:f9034fe8 1e1fc0e44:14000011 1e1fc0e48:900555e8 1e1fc0e4c:91334108 1e1fc0e50:f9400108 1e1fc0e54:b40000e8 1e1fc0e58:14000001
+  1e1fc0e5c:900555e8 1e1fc0e60:91334108 1e1fc0e64:f9400100 1e1fc0e68:f9034be0 1e1fc0e6c:14000004 1e1fc0e70:97fb09dd 1e1fc0e74:f9034be0 1e1fc0e78:14000001
+  1e1fc0e7c:f9434be8 1e1fc0e80:f9034fe8 1e1fc0e84:14000001 1e1fc0e88:f9434fe8 1e1fc0e8c:f9055fe8 1e1fc0e90:52800208 1e1fc0e94:392adfe8 1e1fc0e98:f9455fe0
+  1e1fc0e9c:396adfe1 1e1fc0ea0:94d56294 1e1fc0ea4:36000260 1e1fc0ea8:14000001 1e1fc0eac:f9455fe8 1e1fc0eb0:f9033fe8 1e1fc0eb4:396adfe8 1e1fc0eb8:b90687e8
+  1e1fc0ebc:912ac3e0 1e1fc0ec0:f90347e0 1e1fc0ec4:97faffb4 1e1fc0ec8:f9433fe1 1e1fc0ecc:b94687e2 1e1fc0ed0:f94347e4 1e1fc0ed4:90fff4e0 1e1fc0ed8:91000000
+  1e1fc0edc:90000523 1e1fc0ee0:91126c63 1e1fc0ee4:52800045 1e1fc0ee8:94d560fe 1e1fc0eec:14000001 1e1fc0ef0:140011f5 1e1fc0ef4:b94af7e8 1e1fc0ef8:35000688
+  1e1fc0efc:14000001 1e1fc0f00:900555e8 1e1fc0f04:f9464108 1e1fc0f08:b40000c8 1e1fc0f0c:14000001 1e1fc0f10:900555e8 1e1fc0f14:f9464108 1e1fc0f18:f9033be8
+  1e1fc0f1c:14000011 1e1fc0f20:900555e8 1e1fc0f24:91334108 1e1fc0f28:f9400108 1e1fc0f2c:b40000e8 1e1fc0f30:14000001 1e1fc0f34:900555e8 1e1fc0f38:91334108
+  1e1fc0f3c:f9400100 1e1fc0f40:f90337e0 1e1fc0f44:14000004 1e1fc0f48:97fb09a7 1e1fc0f4c:f90337e0 1e1fc0f50:14000001 1e1fc0f54:f94337e8 1e1fc0f58:f9033be8
+  1e1fc0f5c:14000001 1e1fc0f60:f9433be8 1e1fc0f64:f90557e8 1e1fc0f68:392a9fff 1e1fc0f6c:f94557e0 1e1fc0f70:396a9fe1 1e1fc0f74:94d5625f 1e1fc0f78:36000260
+  1e1fc0f7c:14000001 1e1fc0f80:f94557e8 1e1fc0f84:f9032be8 1e1fc0f88:396a9fe8 1e1fc0f8c:b9065fe8 1e1fc0f90:912a83e0 1e1fc0f94:f90333e0 1e1fc0f98:97faff7f
+  1e1fc0f9c:f9432be1 1e1fc0fa0:b9465fe2 1e1fc0fa4:f94333e4 1e1fc0fa8:90fff4e0 1e1fc0fac:91000000 1e1fc0fb0:90000523 1e1fc0fb4:91135c63 1e1fc0fb8:52800045
+  1e1fc0fbc:94d560d1 1e1fc0fc0:14000001 1e1fc0fc4:14000001 1e1fc0fc8:b94af7e8 1e1fc0fcc:34000728 1e1fc0fd0:14000001 1e1fc0fd4:b94af7e0 1e1fc0fd8:94d55f8e
+  1e1fc0fdc:340006a0 1e1fc0fe0:14000001 1e1fc0fe4:900555e8 1e1fc0fe8:f9464108 1e1fc0fec:b40000c8 1e1fc0ff0:14000001 1e1fc0ff4:900555e8 1e1fc0ff8:f9464108
+  1e1fc0ffc:f90327e8 1e1fc1000:14000011 1e1fc1004:f00555c8 1e1fc1008:91334108 1e1fc100c:f9400108 1e1fc1010:b40000e8 1e1fc1014:14000001 1e1fc1018:f00555c8
+  1e1fc101c:91334108 1e1fc1020:f9400100 1e1fc1024:f90323e0 1e1fc1028:14000004 1e1fc102c:97fb096e 1e1fc1030:f90323e0 1e1fc1034:14000001 1e1fc1038:f94323e8
+  1e1fc103c:f90327e8 1e1fc1040:14000001 1e1fc1044:f94327e8 1e1fc1048:f9054fe8 1e1fc104c:52800208 1e1fc1050:392a5fe8 1e1fc1054:f9454fe0 1e1fc1058:396a5fe1
+  1e1fc105c:94d56225 1e1fc1060:36000260 1e1fc1064:14000001 1e1fc1068:f9454fe8 1e1fc106c:f90317e8 1e1fc1070:396a5fe8 1e1fc1074:b90637e8 1e1fc1078:912a43e0
+  1e1fc107c:f9031fe0 1e1fc1080:97faff45 1e1fc1084:f94317e1 1e1fc1088:b94637e2 1e1fc108c:f9431fe4 1e1fc1090:f0fff4c0 1e1fc1094:91000000 1e1fc1098:f0000503
+  1e1fc109c:91142063 1e1fc10a0:52800045 1e1fc10a4:94d5608f 1e1fc10a8:14000001 1e1fc10ac:14001186 1e1fc10b0:b94af7e8 1e1fc10b4:f9456be9 1e1fc10b8:b9005128
+  1e1fc10bc:f9456be8 1e1fc10c0:f9003d1f 1e1fc10c4:f9456be8 1e1fc10c8:f900411f 1e1fc10cc:90095ce0 1e1fc10d0:91126000 1e1fc10d4:94d55e23 1e1fc10d8:f9456be8
+  1e1fc10dc:f918d900 1e1fc10e0:f90547ff 1e1fc10e4:f90543ff 1e1fc10e8:f9053fff 1e1fc10ec:b94af7e8 1e1fc10f0:340008e8 1e1fc10f4:14000001 1e1fc10f8:b94af7e0
+  1e1fc10fc:b001ad08 1e1fc1100:f9440508 1e1fc1104:f9400102 1e1fc1108:90095ce1 1e1fc110c:9112e021 1e1fc1110:52800003 1e1fc1114:94d55f57 1e1fc1118:f90547e0
+  1e1fc111c:f94547e8 1e1fc1120:b5000068 1e1fc1124:14000001 1e1fc1128:14001167 1e1fc112c:14000001 1e1fc1130:f94547e0 1e1fc1134:90095ca1 1e1fc1138:9128e021
+  1e1fc113c:94d55d9d 1e1fc1140:f90543e0 1e1fc1144:f94543e8 1e1fc1148:b5000068 1e1fc114c:14000001 1e1fc1150:1400002c 1e1fc1154:f94543e0 1e1fc1158:90095ca1
+  1e1fc115c:91266021 1e1fc1160:94d55d94 1e1fc1164:f9053fe0 1e1fc1168:f9453fe8 1e1fc116c:b5000068 1e1fc1170:14000001 1e1fc1174:14000023 1e1fc1178:f9453fe0
+  1e1fc117c:f9456be8 1e1fc1180:91137102 1e1fc1184:d2800061 1e1fc1188:94d55dc2 1e1fc118c:f94543e0 1e1fc1190:90095ce1 1e1fc1194:91136021 1e1fc1198:94d55d86
+  1e1fc119c:f9053fe0 1e1fc11a0:f9453fe8 1e1fc11a4:b5000068 1e1fc11a8:14000001 1e1fc11ac:14000015 1e1fc11b0:f9453fe0 1e1fc11b4:f9456be8 1e1fc11b8:91135102
+  1e1fc11bc:d2800061 1e1fc11c0:94d55db4 1e1fc11c4:f94543e0 1e1fc11c8:90095ce1 1e1fc11cc:9113e021 1e1fc11d0:94d55d78 1e1fc11d4:f9053fe0 1e1fc11d8:f9453fe8
+  1e1fc11dc:b5000068 1e1fc11e0:14000001 1e1fc11e4:14000007 1e1fc11e8:f9453fe0 1e1fc11ec:f9456be8 1e1fc11f0:91136102 1e1fc11f4:d2800061 1e1fc11f8:94d55da6
+  1e1fc11fc:14000001 1e1fc1200:f94547e0 1e1fc1204:94d55dd3 1e1fc1208:14000001 1e1fc120c:f94353e1 1e1fc1210:f9456be8 1e1fc1214:b900251f 1e1fc1218:f9456be9
+  1e1fc121c:52800028 1e1fc1220:b9002128 1e1fc1224:f9456be8 1e1fc1228:f9597900 1e1fc122c:f9456be8 1e1fc1230:91142102 1e1fc1234:94034a83 1e1fc1238:3929dfe0
+  1e1fc123c:3969dfe8 1e1fc1240:370005a8 1e1fc1244:14000001 1e1fc1248:f9456be8 1e1fc124c:1e229000 1e1fc1250:bd052900 1e1fc1254:f9456be8 1e1fc1258:bd051d00
+  1e1fc125c:f9456be8 1e1fc1260:52a86189 1e1fc1264:1e270120 1e1fc1268:bd052500 1e1fc126c:f9456be8 1e1fc1270:bd051900 1e1fc1274:f9456be8 1e1fc1278:52a87909
+  1e1fc127c:1e270120 1e1fc1280:bd052100 1e1fc1284:f9456be8 1e1fc1288:bd051500 1e1fc128c:f9456be0 1e1fc1290:6f00e400 1e1fc1294:9400115f 1e1fc1298:f9456be8
+  1e1fc129c:bd052900 1e1fc12a0:f9456be8 1e1fc12a4:bd051d00 1e1fc12a8:f9456be0 1e1fc12ac:1e2c1000 1e1fc12b0:94001158 1e1fc12b4:f9456be8 1e1fc12b8:bd052500
+  1e1fc12bc:f9456be8 1e1fc12c0:bd051900 1e1fc12c4:f9456be0 1e1fc12c8:1e2e1000 1e1fc12cc:94001151 1e1fc12d0:f9456be8 1e1fc12d4:bd052100 1e1fc12d8:f9456be8
+  1e1fc12dc:bd051500 1e1fc12e0:f9456be8 1e1fc12e4:bd452100 1e1fc12e8:f9456be8 1e1fc12ec:bd052d00 1e1fc12f0:14000001 1e1fc12f4:f00555c8 1e1fc12f8:f9464108
+  1e1fc12fc:b40000c8 1e1fc1300:14000001 1e1fc1304:f00555c8 1e1fc1308:f9464108 1e1fc130c:f90313e8 1e1fc1310:14000011 1e1fc1314:f00555c8 1e1fc1318:91334108
+  1e1fc131c:f9400108 1e1fc1320:b40000e8 1e1fc1324:14000001 1e1fc1328:f00555c8 1e1fc132c:91334108 1e1fc1330:f9400100 1e1fc1334:f9030fe0 1e1fc1338:14000004
+  1e1fc133c:97fb08aa 1e1fc1340:f9030fe0 1e1fc1344:14000001 1e1fc1348:f9430fe8
+  bl at 0x1e1fc0cb0 -> 0x1e55198e0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xe040
+  bl at 0x1e1fc0cc8 -> 0x1e1fc5760 CoreBrightness`___DisplayCreatePrivate+0x0
+  b  at 0x1e1fc0cd8 -> 0x1e1fc0cdc CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0xc0
+  b  at 0x1e1fc0ce0 -> 0x1e1fc5724 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x4b08
+  bl at 0x1e1fc0d94 -> 0x1e5519660 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xddc0
+  b  at 0x1e1fc0dd0 -> 0x1e1fc0dd4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x1b8
+  bl at 0x1e1fc0ddc -> 0x1e5519740 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xdea0
+  bl at 0x1e1fc0de8 -> 0x1e20960c0 CoreBrightness`_objc_msgSend$initWithService:+0x0
+  b  at 0x1e1fc0df4 -> 0x1e1fc0e14 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x1f8
+  b  at 0x1e1fc0e10 -> 0x1e1fc0e14 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x1f8
+  b  at 0x1e1fc0e14 -> 0x1e1fc0e18 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x1fc
+  b  at 0x1e1fc0e24 -> 0x1e1fc0e28 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x20c
+  b  at 0x1e1fc0e34 -> 0x1e1fc0e38 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x21c
+  b  at 0x1e1fc0e44 -> 0x1e1fc0e88 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x26c
+  b  at 0x1e1fc0e58 -> 0x1e1fc0e5c CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x240
+  b  at 0x1e1fc0e6c -> 0x1e1fc0e7c CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x260
+  bl at 0x1e1fc0e70 -> 0x1e1e835e4 CoreBrightness`_init_default_corebrightness_log+0x0
+  b  at 0x1e1fc0e78 -> 0x1e1fc0e7c CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x260
+  b  at 0x1e1fc0e84 -> 0x1e1fc0e88 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x26c
+  bl at 0x1e1fc0ea0 -> 0x1e55198f0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xe050
+  b  at 0x1e1fc0ea8 -> 0x1e1fc0eac CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x290
+  bl at 0x1e1fc0ec4 -> 0x1e1e80d94 CoreBrightness`___os_log_helper_16_0_0+0x0
+  bl at 0x1e1fc0ee8 -> 0x1e55192e0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xda40
+  b  at 0x1e1fc0eec -> 0x1e1fc0ef0 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x2d4
+  b  at 0x1e1fc0ef0 -> 0x1e1fc56c4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x4aa8
+  b  at 0x1e1fc0efc -> 0x1e1fc0f00 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x2e4
+  b  at 0x1e1fc0f0c -> 0x1e1fc0f10 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x2f4
+  b  at 0x1e1fc0f1c -> 0x1e1fc0f60 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x344
+  b  at 0x1e1fc0f30 -> 0x1e1fc0f34 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x318
+  b  at 0x1e1fc0f44 -> 0x1e1fc0f54 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x338
+  bl at 0x1e1fc0f48 -> 0x1e1e835e4 CoreBrightness`_init_default_corebrightness_log+0x0
+  b  at 0x1e1fc0f50 -> 0x1e1fc0f54 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x338
+  b  at 0x1e1fc0f5c -> 0x1e1fc0f60 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x344
+  bl at 0x1e1fc0f74 -> 0x1e55198f0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xe050
+  b  at 0x1e1fc0f7c -> 0x1e1fc0f80 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x364
+  bl at 0x1e1fc0f98 -> 0x1e1e80d94 CoreBrightness`___os_log_helper_16_0_0+0x0
+  bl at 0x1e1fc0fbc -> 0x1e5519300 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xda60
+  b  at 0x1e1fc0fc0 -> 0x1e1fc0fc4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x3a8
+  b  at 0x1e1fc0fc4 -> 0x1e1fc0fc8 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x3ac
+  b  at 0x1e1fc0fd0 -> 0x1e1fc0fd4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x3b8
+  bl at 0x1e1fc0fd8 -> 0x1e5518e10 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xd570
+  b  at 0x1e1fc0fe0 -> 0x1e1fc0fe4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x3c8
+  b  at 0x1e1fc0ff0 -> 0x1e1fc0ff4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x3d8
+  b  at 0x1e1fc1000 -> 0x1e1fc1044 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x428
+  b  at 0x1e1fc1014 -> 0x1e1fc1018 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x3fc
+  b  at 0x1e1fc1028 -> 0x1e1fc1038 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x41c
+  bl at 0x1e1fc102c -> 0x1e1e835e4 CoreBrightness`_init_default_corebrightness_log+0x0
+  b  at 0x1e1fc1034 -> 0x1e1fc1038 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x41c
+  b  at 0x1e1fc1040 -> 0x1e1fc1044 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x428
+  bl at 0x1e1fc105c -> 0x1e55198f0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xe050
+  b  at 0x1e1fc1064 -> 0x1e1fc1068 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x44c
+  bl at 0x1e1fc1080 -> 0x1e1e80d94 CoreBrightness`___os_log_helper_16_0_0+0x0
+  bl at 0x1e1fc10a4 -> 0x1e55192e0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xda40
+  b  at 0x1e1fc10a8 -> 0x1e1fc10ac CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x490
+  b  at 0x1e1fc10ac -> 0x1e1fc56c4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x4aa8
+  bl at 0x1e1fc10d4 -> 0x1e5518960 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xd0c0
+  b  at 0x1e1fc10f4 -> 0x1e1fc10f8 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x4dc
+  bl at 0x1e1fc1114 -> 0x1e5518e70 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xd5d0
+  b  at 0x1e1fc1124 -> 0x1e1fc1128 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x50c
+  b  at 0x1e1fc1128 -> 0x1e1fc56c4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x4aa8
+  b  at 0x1e1fc112c -> 0x1e1fc1130 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x514
+  bl at 0x1e1fc113c -> 0x1e55187b0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xcf10
+  b  at 0x1e1fc114c -> 0x1e1fc1150 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x534
+  b  at 0x1e1fc1150 -> 0x1e1fc1200 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x5e4
+  bl at 0x1e1fc1160 -> 0x1e55187b0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xcf10
+  b  at 0x1e1fc1170 -> 0x1e1fc1174 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x558
+  b  at 0x1e1fc1174 -> 0x1e1fc1200 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x5e4
+  bl at 0x1e1fc1188 -> 0x1e5518890 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xcff0
+  bl at 0x1e1fc1198 -> 0x1e55187b0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xcf10
+  b  at 0x1e1fc11a8 -> 0x1e1fc11ac CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x590
+  b  at 0x1e1fc11ac -> 0x1e1fc1200 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x5e4
+  bl at 0x1e1fc11c0 -> 0x1e5518890 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xcff0
+  bl at 0x1e1fc11d0 -> 0x1e55187b0 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xcf10
+  b  at 0x1e1fc11e0 -> 0x1e1fc11e4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x5c8
+  b  at 0x1e1fc11e4 -> 0x1e1fc1200 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x5e4
+  bl at 0x1e1fc11f8 -> 0x1e5518890 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xcff0
+  b  at 0x1e1fc11fc -> 0x1e1fc1200 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x5e4
+  bl at 0x1e1fc1204 -> 0x1e5518950 AppStoreKit`_objc_msgSend$writingDirectionsQuantities+0xd0b0
+  b  at 0x1e1fc1208 -> 0x1e1fc120c CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x5f0
+  bl at 0x1e1fc1234 -> 0x1e2093c40 CoreBrightness`_objc_msgSend$getBacklightCalibration:+0x0
+  b  at 0x1e1fc1244 -> 0x1e1fc1248 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x62c
+  bl at 0x1e1fc1294 -> 0x1e1fc5810 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x0
+  bl at 0x1e1fc12b0 -> 0x1e1fc5810 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x0
+  bl at 0x1e1fc12cc -> 0x1e1fc5810 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x0
+  b  at 0x1e1fc12f0 -> 0x1e1fc12f4 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x6d8
+  b  at 0x1e1fc1300 -> 0x1e1fc1304 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x6e8
+  b  at 0x1e1fc1310 -> 0x1e1fc1354 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x738
+  b  at 0x1e1fc1324 -> 0x1e1fc1328 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x70c
+  b  at 0x1e1fc1338 -> 0x1e1fc1348 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x72c
+  bl at 0x1e1fc133c -> 0x1e1e835e4 CoreBrightness`_init_default_corebrightness_log+0x0
+  b  at 0x1e1fc1344 -> 0x1e1fc1348 CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x72c
+== CoreBrightness`_DisplaySliderToLogicalBrightnessInternal at 0x1e1fc5810
+  1e1fc5810:d503237f 1e1fc5814:d10103ff 1e1fc5818:a9037bfd 1e1fc581c:9100c3fd 1e1fc5820:f81f83a0 1e1fc5824:bc1f43a0 1e1fc5828:bc5f43a0 1e1fc582c:bc1f03a0
+  1e1fc5830:bc5f03a0 1e1fc5834:bc1ec3a0 1e1fc5838:f85f83a8 1e1fc583c:b40006c8 1e1fc5840:14000001 1e1fc5844:f85f83a8 1e1fc5848:f9402508 1e1fc584c:b4000648
+  1e1fc5850:14000001 1e1fc5854:bc5f43a0 1e1fc5858:f85f83a8 1e1fc585c:b9404108 1e1fc5860:71000508 1e1fc5864:1e230101 1e1fc5868:1e210800 1e1fc586c:bd001be0
+  1e1fc5870:bd401be0 1e1fc5874:1e390008 1e1fc5878:b90017e8 1e1fc587c:b94017e8 1e1fc5880:f85f83a9 1e1fc5884:b9404129 1e1fc5888:71000529 1e1fc588c:6b090108
+  1e1fc5890:54000302 1e1fc5894:14000001 1e1fc5898:f85f83a8 1e1fc589c:f9402508 1e1fc58a0:b94017e9 1e1fc58a4:bc697900 1e1fc58a8:bd0013e0 1e1fc58ac:f85f83a8
+  1e1fc58b0:f9402508 1e1fc58b4:b94017e9 1e1fc58b8:11000529 1e1fc58bc:bc695900 1e1fc58c0:bd000fe0 1e1fc58c4:bd4017e0 1e1fc58c8:7e21d800 1e1fc58cc:bd4013e1
+  1e1fc58d0:b94017e8 1e1fc58d4:11000508 1e1fc58d8:1e230102 1e1fc58dc:bd400fe3 1e1fc58e0:bd401be4 1e1fc58e4:97fb9534 1e1fc58e8:bc1ec3a0 1e1fc58ec:14000009
+  1e1fc58f0:f85f83a8 1e1fc58f4:f9402508 1e1fc58f8:f85f83a9 1e1fc58fc:b9404129 1e1fc5900:71000529 1e1fc5904:bc695900 1e1fc5908:bc1ec3a0 1e1fc590c:14000001
+  1e1fc5910:14000001 1e1fc5914:bc5ec3a0 1e1fc5918:bc1f03a0 1e1fc591c:f85f83a8 1e1fc5920:f9402508 1e1fc5924:bd400100 1e1fc5928:f85f83a8 1e1fc592c:bd452901
+  1e1fc5930:1e212000 1e1fc5934:1a9fd7e8 1e1fc5938:39002fe8 1e1fc593c:f85f83a8 1e1fc5940:b40004a8 1e1fc5944:14000001 1e1fc5948:bc5ec3a0 1e1fc594c:f85f83a8
+  1e1fc5950:bd451901 1e1fc5954:1e212000 1e1fc5958:540001cb 1e1fc595c:14000001 1e1fc5960:f85f83a8 1e1fc5964:bd451900 1e1fc5968:f85f83a8 1e1fc596c:bd452501
+  1e1fc5970:f85f83a8 1e1fc5974:bd451502 1e1fc5978:f85f83a8 1e1fc597c:bd452103 1e1fc5980:bc5ec3a4 1e1fc5984:97fb950c 1e1fc5988:bc1f03a0 1e1fc598c:14000011
+  1e1fc5990:39402fe8 1e1fc5994:370001c8 1e1fc5998:14000001 1e1fc599c:f85f83a8 1e1fc59a0:bd451d00 1e1fc59a4:f85f83a8 1e1fc59a8:bd452901 1e1fc59ac:f85f83a8
+  1e1fc59b0:bd451902 1e1fc59b4:f85f83a8 1e1fc59b8:bd452503 1e1fc59bc:bc5ec3a4 1e1fc59c0:97fb94fd 1e1fc59c4:bc1f03a0 1e1fc59c8:14000001 1e1fc59cc:14000001
+  1e1fc59d0:14000001 1e1fc59d4:bc5f03a0 1e1fc59d8:a9437bfd 1e1fc59dc:910103ff 1e1fc59e0:d65f03c0 1e1fc59e4:d503237f 1e1fc59e8:d101c3ff 1e1fc59ec:a9067bfd
+  b  at 0x1e1fc5840 -> 0x1e1fc5844 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x34
+  b  at 0x1e1fc5850 -> 0x1e1fc5854 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x44
+  b  at 0x1e1fc5894 -> 0x1e1fc5898 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x88
+  bl at 0x1e1fc58e4 -> 0x1e1eaadb4 CoreBrightness`___interpolate+0x0
+  b  at 0x1e1fc58ec -> 0x1e1fc5910 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x100
+  b  at 0x1e1fc590c -> 0x1e1fc5910 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x100
+  b  at 0x1e1fc5910 -> 0x1e1fc5914 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x104
+  b  at 0x1e1fc5944 -> 0x1e1fc5948 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x138
+  b  at 0x1e1fc595c -> 0x1e1fc5960 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x150
+  bl at 0x1e1fc5984 -> 0x1e1eaadb4 CoreBrightness`___interpolate+0x0
+  b  at 0x1e1fc598c -> 0x1e1fc59d0 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x1c0
+  b  at 0x1e1fc5998 -> 0x1e1fc599c CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x18c
+  bl at 0x1e1fc59c0 -> 0x1e1eaadb4 CoreBrightness`___interpolate+0x0
+  b  at 0x1e1fc59c8 -> 0x1e1fc59cc CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x1bc
+  b  at 0x1e1fc59cc -> 0x1e1fc59d0 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x1c0
+  b  at 0x1e1fc59d0 -> 0x1e1fc59d4 CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x1c4
