@@ -1,0 +1,44 @@
+0x23f309c50 (0x2322bdc50)  libsystem_kernel.dylib`_semaphore_wait_trap+0x8
+0x1ca98e410 (0x1bd942410)  libdispatch.dylib`__dispatch_sema4_wait+0x1c
+0x1ca98eaa0 (0x1bd942aa0)  libdispatch.dylib`__dispatch_semaphore_wait_slow+0x84
+0x1d018409c (0x1c313809c)  CoreBluetooth`<redacted>+0xbc
+0x1905a2ad0 (0x183556ad0)  CoreFoundation`___CFNOTIFICATIONCENTER_IS_CALLING_OUT_TO_AN_OBSERVER__+0x94
+0x1905a2b80 (0x183556b80)  CoreFoundation`____CFXRegistrationPost_block_invoke+0x5c
+0x1905a29dc (0x1835569dc)  CoreFoundation`__CFXRegistrationPost+0x1b8
+0x1905a38d8 (0x1835578d8)  CoreFoundation`__CFXNotificationPost+0x2e0
+0x18d7f108c (0x1807a508c)  Foundation`<redacted>+0x5c
+0x196890d44 (0x189844d44)  UIKitCore`___47-[UIApplication _applicationDidEnterBackground]_block_invoke+0x104
+0x196284cf0 (0x189238cf0)  UIKitCore`<redacted>+0x80
+0x19688f2d0 (0x1898432d0)  UIKitCore`<redacted>+0x88
+0x1962cc4b4 (0x1892804b4)  UIKitCore`___101-[_UISceneLifecycleMultiplexer _evalTransitionToSettings:fromSettings:forceExit:withTransitionStore:]_block_invoke_2+0x218
+0x1962cdfac (0x189281fac)  UIKitCore`__UIScenePerformActionsWithLifecycleActionMask+0x70
+0x1962c9cc0 (0x18927dcc0)  UIKitCore`___101-[_UISceneLifecycleMultiplexer _evalTransitionToSettings:fromSettings:forceExit:withTransitionStore:]_block_invoke+0xe4
+0x1962cc1f0 (0x1892801f0)  UIKitCore`<redacted>+0xd4
+0x1962ce988 (0x189282988)  UIKitCore`<redacted>+0x24c
+0x23f309cd4 (0x2322bdcd4)  libsystem_kernel.dylib`_mach_msg2_trap+0x8
+0x23f30d30c (0x2322c130c)  libsystem_kernel.dylib`_mach_msg2_internal+0x4c
+0x23f30d22c (0x2322c122c)  libsystem_kernel.dylib`_mach_msg_overwrite+0x1a8
+0x23f30d078 (0x2322c1078)  libsystem_kernel.dylib`_mach_msg+0x18
+0x1ca9a7984 (0x1bd95b984)  libdispatch.dylib`__dispatch_mach_send_and_wait_for_reply+0x224
+0x1ca9a7d24 (0x1bd95bd24)  libdispatch.dylib`_dispatch_mach_send_with_result_and_wait_for_reply+0x3c
+0x1a4f79edc (0x197f2dedc)  libxpc.dylib`_xpc_connection_send_message_with_reply_sync+0x100
+0x18d804714 (0x1807b8714)  Foundation`___NSXPCCONNECTION_IS_WAITING_FOR_A_SYNCHRONOUS_REPLY__+0x10
+0x18d7ec06c (0x1807a006c)  Foundation`<redacted>+0x834
+0x18d7ec920 (0x1807a0920)  Foundation`<redacted>+0x80
+0x18d7ec84c (0x1807a084c)  Foundation`__NSXPCDistantObjectSimpleMessageSend2+0x44
+0x226a55c30 (0x219a09c30)  CoreHaptics`<redacted>+0x518
+0x226a55434 (0x219a09434)  CoreHaptics`<redacted>+0x12c
+0x226a55190 (0x219a09190)  CoreHaptics`<redacted>+0x64
+0x226a55030 (0x219a09030)  CoreHaptics`<redacted>+0x118
+0x226a54d8c (0x219a08d8c)  CoreHaptics`<redacted>+0x1b0
+0x226a543ec (0x219a083ec)  CoreHaptics`<redacted>+0x1a8
+0x196510d6c (0x1894c4d6c)  UIKitCore`____InProcessAnimationLog_block_invoke+0x558
+0x196510d24 (0x1894c4d24)  UIKitCore`____InProcessAnimationLog_block_invoke+0x510
+0x1961775c4 (0x18912b5c4)  UIKitCore`<redacted>+0x480
+0x18d851824 (0x180805824)  Foundation`___NSThread__start__+0x2dc
+0x1ef760438 (0x1e2714438)  libsystem_pthread.dylib`__pthread_start+0x88
+0x1ef75c8cc (0x1e27108cc)  libsystem_pthread.dylib`_thread_start+0x8
+0x23f309c68 (0x2322bdc68)  libsystem_kernel.dylib`_semaphore_timedwait_trap+0x8
+0x1ca9c17d8 (0x1bd9757d8)  libdispatch.dylib`__dispatch_sema4_timedwait+0x40
+0x1ca98ea68 (0x1bd942a68)  libdispatch.dylib`__dispatch_semaphore_wait_slow+0x4c
+0x1ca99e6fc (0x1bd9526fc)  libdispatch.dylib`__dispatch_worker_thread+0x144

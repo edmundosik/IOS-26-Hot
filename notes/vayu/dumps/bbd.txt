@@ -1,0 +1,13 @@
+0x1fd01d924 (0x1e1fc5924)  CoreBrightness`__DisplaySliderToLogicalBrightnessInternal+0x114
+  1e1fc58f4:f9402508 1e1fc58f8:f85f83a9 1e1fc58fc:b9404129 1e1fc5900:71000529 1e1fc5904:bc695900 1e1fc5908:bc1ec3a0 1e1fc590c:14000001 1e1fc5910:14000001 1e1fc5914:bc5ec3a0 1e1fc5918:bc1f03a0 1e1fc591c:f85f83a8 1e1fc5920:f9402508 1e1fc5924:bd400100 1e1fc5928:f85f83a8 1e1fc592c:bd452901 1e1fc5930:1e212000 1e1fc5934:1a9fd7e8 1e1fc5938:39002fe8 1e1fc593c:f85f83a8 1e1fc5940:b40004a8 1e1fc5944:14000001 1e1fc5948:bc5ec3a0 1e1fc594c:f85f83a8 1e1fc5950:bd451901
+0x1fd019298 (0x1e1fc1298)  CoreBrightness`_DisplayCreateWithCapabilitiesAndID+0x67c
+  1e1fc1278:52a87909 1e1fc127c:1e270120 1e1fc1280:bd052100 1e1fc1284:f9456be8 1e1fc1288:bd051500 1e1fc128c:f9456be0 1e1fc1290:6f00e400 1e1fc1294:9400115f 1e1fc1298:f9456be8 1e1fc129c:bd052900 1e1fc12a0:f9456be8 1e1fc12a4:bd051d00 1e1fc12a8:f9456be0 1e1fc12ac:1e2c1000 1e1fc12b0:94001158 1e1fc12b4:f9456be8
+0x1fcf49d40 (0x1e1ef1d40)  CoreBrightness`<redacted>+0x450
+0x1fd0101cc (0x1e1fb81cc)  CoreBrightness`<redacted>+0x19c
+0x1fd00e02c (0x1e1fb602c)  CoreBrightness`<redacted>+0x69c
+0x1fd00d438 (0x1e1fb5438)  CoreBrightness`<redacted>+0x1c4
+0x1fd00f0d8 (0x1e1fb70d8)  CoreBrightness`___54-[CBDisplayContaineriOS handleCBDisplayContainerStart]_block_invoke+0x488
+0x1d89b21e4 (0x1bd95a1e4)  libdispatch.dylib`__dispatch_client_callout+0x10
+0x1d89a82e0 (0x1bd9502e0)  libdispatch.dylib`__dispatch_lane_barrier_sync_invoke_and_complete+0x38
+0x1fd00eb28 (0x1e1fb6b28)  CoreBrightness`<redacted>+0xb8
+0x1fd00e768 (0x1e1fb6768)  CoreBrightness`<redacted>+0xa0

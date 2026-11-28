@@ -1,0 +1,32 @@
+volume: 7340032 blocks of 4096, header says 2243482 free
+allocation file: 917504 bytes, extents [(1, 224)]
+  phone copy: ./adb shell 'd=$(readlink -f /dev/block/by-name/userdata); dd if=$d of=/tmp/bitmap.bin bs=4096 skip=1 count=224'
+checking the phone bitmap (917504 bytes)
+  block 85239: used
+  block 85240: used
+  block 85241: used
+  block 85242: used
+file blocks 5021316, bitmap marks 6727963 used (612069 free)
+files with blocks marked FREE: 21 (76 blocks)
+       17  cnid 452374 'launchd.plist' (parent 26860)
+       15  cnid 317459 'IDSBlastDoorService' (parent 316301)
+        9  cnid 326473 'MessagesBlastDoorService' (parent 325357)
+        6  cnid 473361 'iNode60757558' (parent 18)
+        4  cnid 473378 'iNode1060214192' (parent 18)
+        3  cnid 473415 'iNode27011591' (parent 18)
+        3  cnid 473435 'iNode316565671' (parent 18)
+        2  cnid 473433 'iNode207713151' (parent 18)
+        2  cnid 473359 'iNode245438757' (parent 18)
+        2  cnid 473429 'iNode536766443' (parent 18)
+        2  cnid 260724 'Localizable_Places.db' (parent 259859)
+        2  cnid 336158 'AugmentedGazetteerMetadata.db' (parent 334613)
+        1  cnid 473374 'iNode184163967' (parent 18)
+        1  cnid 473416 'iNode220737517' (parent 18)
+        1  cnid 473360 'iNode24584452' (parent 18)
+        1  cnid 473380 'iNode428580299' (parent 18)
+        1  cnid 473383 'iNode565863924' (parent 18)
+        1  cnid 473437 'iNode572589300' (parent 18)
+        1  cnid 473439 'iNode81254202' (parent 18)
+        1  cnid 26879 'Wallpaper.plist' (parent 26394)
+        1  cnid 477489 'com.apple.backboardd.plist' (parent 451303)
+files sharing blocks with another file: 0 (0 blocks)
